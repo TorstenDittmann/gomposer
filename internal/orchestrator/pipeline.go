@@ -11,11 +11,16 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	autoloadpkg "github.com/torstendittmann/composer-go/internal/autoload"
+	"github.com/torstendittmann/composer-go/internal/cache"
+	realfetcher "github.com/torstendittmann/composer-go/internal/fetcher"
 	"github.com/torstendittmann/composer-go/internal/lock"
 	"github.com/torstendittmann/composer-go/internal/manifest"
 	"github.com/torstendittmann/composer-go/internal/platform"
 	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/composer-go/internal/registry/packagist"
 	"github.com/torstendittmann/composer-go/internal/resolver"
+	"github.com/torstendittmann/composer-go/internal/store"
 )
 
 // Fetcher downloads a single locked package and returns a content-store key.
@@ -261,12 +266,129 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	return nil
 }
 
+// fetcherAdapter wraps fetcher.Fetcher to implement the orchestrator Fetcher
+// interface. It downloads the package zip and returns the SHA256 as the key.
+type fetcherAdapter struct {
+	f *realfetcher.Fetcher
+}
+
+func (a *fetcherAdapter) Fetch(ctx context.Context, pkg lock.Package) (string, error) {
+	pv := registry.PackageVersion{
+		Name: pkg.Name,
+		Dist: registry.Dist{
+			Type: pkg.Dist.Type,
+			URL:  pkg.Dist.URL,
+			Sha:  pkg.Dist.Sha256,
+		},
+	}
+	if err := a.f.Fetch(ctx, pv); err != nil {
+		return "", err
+	}
+	// The store key is the sha256. If the package had one, use it; otherwise
+	// we cannot reliably return a key (this shouldn't happen in practice since
+	// every Packagist dist has a sha).
+	if pkg.Dist.Sha256 != "" {
+		return pkg.Dist.Sha256, nil
+	}
+	return "", fmt.Errorf("orchestrator: %s: dist has no sha256 after fetch", pkg.Name)
+}
+
+// materializerAdapter wraps fetcher.Fetcher to implement the orchestrator Materializer
+// interface. The "key" is the sha256 used to look up the zip in the store.
+type materializerAdapter struct {
+	f *realfetcher.Fetcher
+}
+
+func (a *materializerAdapter) Materialize(ctx context.Context, key, dest string) error {
+	// We need to reconstruct a registry.PackageVersion with the sha set so
+	// the fetcher can locate the zip in the store.
+	pv := registry.PackageVersion{
+		Name: dest, // name is only used for error messages
+		Dist: registry.Dist{
+			Type: "zip",
+			Sha:  key,
+		},
+	}
+	return a.f.Materialize(ctx, pv, dest)
+}
+
+// autoloaderAdapter wraps autoload.Generate to implement the orchestrator Autoloader interface.
+type autoloaderAdapter struct{}
+
+func (a *autoloaderAdapter) Generate(ctx context.Context, projectDir string, pkgs []lock.Package, m *manifest.Manifest) error {
+	entries := make([]autoloadpkg.Entry, 0, len(pkgs))
+	for _, p := range pkgs {
+		installPath := vendorPath(projectDir, p.Name)
+		// Convert lock.Package.Autoload (map[string]any) back to registry.Autoload shape.
+		// For stage 1 the resolver puts the autoload map directly in lock.Package.Autoload.
+		// We need to extract PSR4 from it.
+		al := registryAutoloadFromMap(p.Autoload)
+		entries = append(entries, autoloadpkg.Entry{
+			Name:        p.Name,
+			Version:     p.Version,
+			InstallPath: installPath,
+			Autoload:    al,
+		})
+	}
+	return autoloadpkg.Generate(autoloadpkg.Options{
+		ProjectDir:   projectDir,
+		Entries:      entries,
+		RootAutoload: m.Autoload,
+	})
+}
+
+// registryAutoloadFromMap converts the lock package's Autoload map (map[string]any)
+// into a registry.Autoload struct. Stage 1 stores PSR4 as a nested map.
+func registryAutoloadFromMap(raw map[string]any) registry.Autoload {
+	var al registry.Autoload
+	if raw == nil {
+		return al
+	}
+	if psr4, ok := raw["psr-4"]; ok {
+		if m, ok := psr4.(map[string]any); ok {
+			al.PSR4 = m
+		}
+	}
+	if psr0, ok := raw["psr-0"]; ok {
+		if m, ok := psr0.(map[string]any); ok {
+			al.PSR0 = m
+		}
+	}
+	return al
+}
+
 // defaultDeps wires up the production Fetcher, Materializer, Autoloader, and
 // (if absent) Source. Tests typically pre-populate Options so this returns
 // quickly with what's already there.
 func defaultDeps(opts *Options) error {
-	if opts.Source == nil || opts.Fetcher == nil || opts.Materializer == nil || opts.Autoloader == nil {
-		return fmt.Errorf("orchestrator: production deps not implemented in stage 1 (inject via Options for tests)")
+	cacheRoot, err := cache.Root()
+	if err != nil {
+		return err
+	}
+	if opts.Source == nil {
+		c, err := packagist.New(packagist.Config{
+			CacheDir: filepath.Join(cacheRoot, "packagist"),
+		})
+		if err != nil {
+			return err
+		}
+		opts.Source = c
+	}
+	if opts.Fetcher == nil || opts.Materializer == nil {
+		s, err := store.New(filepath.Join(cacheRoot, "store"))
+		if err != nil {
+			return err
+		}
+		f := realfetcher.New(s, nil)
+		if opts.Fetcher == nil {
+			opts.Fetcher = &fetcherAdapter{f: f}
+		}
+		if opts.Materializer == nil {
+			opts.Materializer = &materializerAdapter{f: f}
+		}
+	}
+	if opts.Autoloader == nil {
+		opts.Autoloader = &autoloaderAdapter{}
 	}
 	return nil
 }
