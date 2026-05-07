@@ -122,3 +122,49 @@ func TestMaterializeRejectsTraversal(t *testing.T) {
 		t.Fatal("runtime.GOOS empty?")
 	}
 }
+
+func TestCloneFileFallthroughChain(t *testing.T) {
+	// CloneOrCopy succeeds on every platform: at minimum the io.Copy
+	// fallback is always available. We only assert that the destination
+	// ends up byte-for-byte equal to the source.
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	dst := filepath.Join(dir, "dst.bin")
+	payload := []byte("clonefile or bust")
+	if err := os.WriteFile(src, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CloneOrCopy(src, dst); err != nil {
+		t.Fatalf("CloneOrCopy: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("dst mismatch: got %q want %q", got, payload)
+	}
+}
+
+func TestCloneFilePlatformSpecific(t *testing.T) {
+	switch runtime.GOOS {
+	case "darwin":
+		// Best-effort: clonefile only works on APFS. t.TempDir() is APFS on
+		// modern macOS so we expect success or graceful fallthrough.
+	case "linux":
+		// FICLONE only works on btrfs/xfs+reflink/zfs/bcachefs. CI usually
+		// runs ext4, so we treat fallthrough as the expected outcome.
+	default:
+		t.Skipf("no reflink primitive on %s", runtime.GOOS)
+	}
+	// The point is that calling CloneOrCopy never panics regardless of FS.
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CloneOrCopy(src, dst); err != nil {
+		t.Errorf("CloneOrCopy on %s failed: %v", runtime.GOOS, err)
+	}
+}
