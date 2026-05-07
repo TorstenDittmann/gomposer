@@ -21,6 +21,7 @@ import (
 	"github.com/torstendittmann/composer-go/internal/registry"
 	"github.com/torstendittmann/composer-go/internal/registry/packagist"
 	"github.com/torstendittmann/composer-go/internal/resolver"
+	"github.com/torstendittmann/composer-go/internal/scripts"
 	"github.com/torstendittmann/composer-go/internal/store"
 )
 
@@ -268,11 +269,38 @@ func writeLock(projectDir string, f *lock.File) error {
 	return nil
 }
 
+// fireEvent invokes the user's scripts for `event`. No-op when:
+//   - opts.NoScripts is true (CLI flag),
+//   - opts.Scripts is nil (test path with no runner injected),
+//   - the manifest has no entries for this event.
+func fireEvent(ctx context.Context, event scripts.Event, opts Options, m *manifest.Manifest) error {
+	if opts.NoScripts || opts.Scripts == nil {
+		return nil
+	}
+	return opts.Scripts.Run(ctx, event, scripts.Options{
+		ProjectDir: opts.ProjectDir,
+		Scripts:    m.Scripts,
+		Verbose:    opts.Verbose,
+	})
+}
+
 // runFullPipeline ties all phases together.
 func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool) error {
 	if err := defaultDeps(&opts); err != nil {
 		return err
 	}
+
+	preCmd := scripts.EventPreInstall
+	postCmd := scripts.EventPostInstall
+	if forceResolve {
+		preCmd = scripts.EventPreUpdate
+		postCmd = scripts.EventPostUpdate
+	}
+
+	if err := fireEvent(ctx, preCmd, opts, m); err != nil {
+		return err
+	}
+
 	ps, err := newPipelineState(opts, m)
 	if err != nil {
 		return err
@@ -317,10 +345,22 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	if err := materializeAll(ctx, opts.ProjectDir, all, keys, opts.Materializer, workerCount(opts.Workers)); err != nil {
 		return err
 	}
+
+	if err := fireEvent(ctx, scripts.EventPreAutoloadDump, opts, m); err != nil {
+		return err
+	}
 	if err := generateAutoloader(ctx, opts.ProjectDir, all, m, opts.Autoloader); err != nil {
 		return err
 	}
+	if err := fireEvent(ctx, scripts.EventPostAutoloadDump, opts, m); err != nil {
+		return err
+	}
+
 	if err := writeLock(opts.ProjectDir, lockFile); err != nil {
+		return err
+	}
+
+	if err := fireEvent(ctx, postCmd, opts, m); err != nil {
 		return err
 	}
 	return nil
@@ -540,6 +580,9 @@ func defaultDeps(opts *Options) error {
 	}
 	if opts.Autoloader == nil {
 		opts.Autoloader = &autoloaderAdapter{}
+	}
+	if opts.Scripts == nil && !opts.NoScripts {
+		opts.Scripts = scripts.New()
 	}
 	return nil
 }
