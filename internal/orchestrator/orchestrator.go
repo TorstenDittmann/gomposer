@@ -40,6 +40,14 @@ type Options struct {
 	// here. Production callers leave it nil.
 	Source registry.SourceLookup
 
+	// IgnorePlatformReqs is the parsed form of --ignore-platform-req
+	// (repeatable). A value of "*" means "ignore all platform reqs"
+	// (--ignore-platform).
+	IgnorePlatformReqs []string
+
+	// Quiet suppresses non-error output (warnings, info messages).
+	Quiet bool
+
 	// Test-only injection points. Production callers leave these nil and
 	// the orchestrator constructs the real implementations.
 	Fetcher      Fetcher

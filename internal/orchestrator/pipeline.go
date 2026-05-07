@@ -47,8 +47,10 @@ type pipelineState struct {
 	manifest      *manifest.Manifest
 	manifestBytes []byte
 	lockBytes     []byte // existing lock contents, if any (nil means none)
-	platform      string
+	platform      *platform.Platform // structured, may be nil when ignore-all
+	platformStr   string             // fingerprint string (cache key input)
 	cacheKey      string
+	ignoreSet     map[string]bool
 }
 
 func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error) {
@@ -57,26 +59,46 @@ func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error
 		return nil, fmt.Errorf("orchestrator: read manifest bytes: %w", err)
 	}
 	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "composer-go.lock"))
-	pf, err := platform.Fingerprint()
-	if err != nil {
-		return nil, fmt.Errorf("orchestrator: platform fingerprint: %w", err)
+
+	ignore := buildIgnoreSet(opts.IgnorePlatformReqs)
+
+	var pf *platform.Platform
+	if !ignore["*"] {
+		pf, err = platform.Probe()
+		if err != nil {
+			return nil, fmt.Errorf("orchestrator: %w", err)
+		}
 	}
+	pfStr := pf.Fingerprint()
 	return &pipelineState{
 		opts:          opts,
 		manifest:      m,
 		manifestBytes: manifestBytes,
 		lockBytes:     lockBytes,
 		platform:      pf,
-		cacheKey:      computeCacheKey(manifestBytes, lockBytes, pf),
+		platformStr:   pfStr,
+		cacheKey:      computeCacheKey(manifestBytes, lockBytes, pfStr),
+		ignoreSet:     ignore,
 	}, nil
 }
 
+func buildIgnoreSet(list []string) map[string]bool {
+	out := make(map[string]bool, len(list))
+	for _, n := range list {
+		out[n] = true
+	}
+	return out
+}
+
 // resolveFunc is the resolver entry point, indirected for tests.
-var resolveFunc = func(ctx context.Context, m *manifest.Manifest, src registry.SourceLookup, includeDev bool) (*resolver.Result, error) {
+var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.SourceLookup, includeDev bool) (*resolver.Result, error) {
 	return resolver.Solve(ctx, resolver.Input{
-		Manifest:   m,
-		Source:     src,
-		IncludeDev: includeDev,
+		Manifest:            ps.manifest,
+		Source:              src,
+		IncludeDev:          includeDev,
+		Platform:            ps.platform,
+		IgnorePlatformReqs:  ps.ignoreSet,
+		PlatformFingerprint: ps.platformStr,
 	})
 }
 
@@ -107,7 +129,7 @@ func resolveOrCache(ctx context.Context, ps *pipelineState, forceResolve bool) (
 		return nil, fmt.Errorf("orchestrator: no registry source configured")
 	}
 
-	res, err := resolveFunc(ctx, ps.manifest, src, !ps.opts.NoDev)
+	res, err := resolveFunc(ctx, ps, src, !ps.opts.NoDev)
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: resolve: %w", err)
 	}
@@ -125,7 +147,7 @@ func buildLockFile(ps *pipelineState, res *resolver.Result) *lock.File {
 		SchemaVersion:       lock.SchemaVersion,
 		Generator:           lock.Generator{Name: "composer-go", Version: "0.1.0"},
 		ManifestContentHash: "sha256:" + hex.EncodeToString(manifestHash[:]),
-		PlatformFingerprint: ps.platform,
+		PlatformFingerprint: ps.platformStr,
 		Stability: lock.Stability{
 			MinimumStability: ps.manifest.MinimumStability,
 			PreferStable:     ps.manifest.PreferStable,

@@ -254,6 +254,7 @@ func TestWriteLockProducesValidJSON(t *testing.T) {
 // --- Task 9: full pipeline tests ---
 
 func TestInstallFullPipelineWithFakes(t *testing.T) {
+	platformpkg.SetTestPlatform(t, "8.2.0")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"),
 		[]byte(`{"name":"vendor/pkg","require":{"acme/leaf":"1.0.0"}}`), 0o644); err != nil {
@@ -285,6 +286,7 @@ func TestInstallFullPipelineWithFakes(t *testing.T) {
 }
 
 func TestInstallUsesResolutionCacheOnSecondRun(t *testing.T) {
+	platformpkg.SetTestPlatform(t, "8.2.0")
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	dir := t.TempDir()
@@ -302,9 +304,9 @@ func TestInstallUsesResolutionCacheOnSecondRun(t *testing.T) {
 	hits := 0
 	originalResolve := resolveFunc
 	t.Cleanup(func() { resolveFunc = originalResolve })
-	resolveFunc = func(ctx context.Context, m *manifest.Manifest, _ registry.SourceLookup, includeDev bool) (*resolver.Result, error) {
+	resolveFunc = func(ctx context.Context, ps *pipelineState, _ registry.SourceLookup, includeDev bool) (*resolver.Result, error) {
 		hits++
-		return originalResolve(ctx, m, src, includeDev)
+		return originalResolve(ctx, ps, src, includeDev)
 	}
 
 	opts := Options{
