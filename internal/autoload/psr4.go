@@ -1,6 +1,7 @@
 package autoload
 
 import (
+	"log/slog"
 	"path"
 	"sort"
 	"strings"
@@ -113,4 +114,43 @@ func appendUnique(s []string, x string) []string {
 		}
 	}
 	return append(s, x)
+}
+
+// WarnPSR0 logs one warning per package (and one for the root manifest)
+// that declares non-empty autoload.psr-0. Stage 2 explicitly does not
+// implement PSR-0; calling code is already aware of this from the spec,
+// but a runtime warning helps surface unsupported packages during real
+// installs.
+//
+// The warnings are emitted via slog at level Warn so they are visible
+// without --verbose. Tests can capture them via slog.SetDefault(...).
+func WarnPSR0(root manifest.Autoload, entries []Entry) {
+	if len(root.PSR0) > 0 {
+		slog.Warn("autoload: PSR-0 not supported, skipping",
+			"package", "<root>", "namespaces", keysOf(root.PSR0))
+	}
+	for _, e := range entries {
+		if len(e.Autoload.PSR0) > 0 {
+			slog.Warn("autoload: PSR-0 not supported, skipping",
+				"package", e.Name, "namespaces", anyKeysOf(e.Autoload.PSR0))
+		}
+	}
+}
+
+func keysOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func anyKeysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

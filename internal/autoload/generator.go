@@ -36,7 +36,16 @@ func Generate(opts Options) error {
 	if !filepath.IsAbs(opts.ProjectDir) {
 		return errors.New("autoload: ProjectDir must be absolute")
 	}
+
+	WarnPSR0(opts.RootAutoload, opts.Entries)
+
 	psr4 := CollectPSR4(opts.ProjectDir, opts.RootAutoload, opts.Entries)
+	files := CollectFiles(opts.RootAutoload, opts.Entries)
+	classmap, err := CollectClassmap(opts.ProjectDir, opts.RootAutoload, opts.Entries)
+	if err != nil {
+		return err
+	}
+
 	sorted := SortedPrefixes(psr4)
 	data := renderData{
 		InitClass:       InitClassName(opts.ProjectDir),
@@ -44,6 +53,9 @@ func Generate(opts Options) error {
 		PSR4:            psr4,
 		SortedPSR4:      sorted,
 		PSR4ByFirstChar: buildFirstCharGroups(sorted),
+		Files:           files,
+		Classmap:        classmap,
+		SortedClasses:   SortedClassmapKeys(classmap),
 	}
 
 	out, err := renderAll(data)
