@@ -76,3 +76,32 @@ func TestParseAutoload(t *testing.T) {
 		t.Errorf("AutoloadDev.PSR4[App\\Tests\\] = %q, want tests/", got)
 	}
 }
+
+func TestParseStability(t *testing.T) {
+	input := []byte(`{
+		"name": "vendor/pkg",
+		"minimum-stability": "beta",
+		"prefer-stable": true
+	}`)
+	m, err := Parse(input)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if m.MinimumStability != "beta" {
+		t.Errorf("MinimumStability = %q, want beta", m.MinimumStability)
+	}
+	if !m.PreferStable {
+		t.Errorf("PreferStable = false, want true")
+	}
+}
+
+func TestParseStabilityDefaults(t *testing.T) {
+	input := []byte(`{ "name": "vendor/pkg" }`)
+	m, _ := Parse(input)
+	if m.MinimumStability != "" {
+		t.Errorf("MinimumStability = %q, want \"\" (caller picks default)", m.MinimumStability)
+	}
+	if m.PreferStable {
+		t.Errorf("PreferStable = true, want false")
+	}
+}
