@@ -44,6 +44,24 @@ func Solve(ctx context.Context, in Input) (*Result, error) {
 	}
 	vl := newVersionLister(in.Source, minStab)
 
+	// Stability flags: explicit "dev-<branch>" requires admit that branch
+	// regardless of minStab (Composer-compatible behaviour).
+	registerExplicitDev := func(reqs map[string]string) {
+		for pkg, raw := range reqs {
+			c, err := constraint.Parse(raw)
+			if err != nil {
+				continue
+			}
+			if branch := c.ExplicitDevBranch(); branch != "" {
+				vl.AllowDevBranch(pkg, branch)
+			}
+		}
+	}
+	registerExplicitDev(in.Manifest.Require)
+	if in.IncludeDev {
+		registerExplicitDev(in.Manifest.RequireDev)
+	}
+
 	// 1. Seed root incompatibilities.
 	ics := buildRootIncompatibilities(in.Manifest, in.IncludeDev)
 	ps := NewPartialSolution()

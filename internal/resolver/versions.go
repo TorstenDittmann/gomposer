@@ -24,6 +24,7 @@ type versionLister struct {
 	minStab  constraint.Stability
 	cache    map[string][]listedVersion
 	notFound map[string]bool
+	allowDev map[string]map[string]bool // pkg -> branch set
 }
 
 func newVersionLister(src registry.SourceLookup, minStability string) *versionLister {
@@ -32,7 +33,24 @@ func newVersionLister(src registry.SourceLookup, minStability string) *versionLi
 		minStab:  parseStabilityName(minStability),
 		cache:    map[string][]listedVersion{},
 		notFound: map[string]bool{},
+		allowDev: map[string]map[string]bool{},
 	}
+}
+
+// AllowDevBranch records that pkg's dev-<branch> version is admissible
+// regardless of minimum stability. Call once per explicit-dev require before
+// the first versions() call for that package.
+func (vl *versionLister) AllowDevBranch(pkg, branch string) {
+	m, ok := vl.allowDev[pkg]
+	if !ok {
+		m = map[string]bool{}
+		vl.allowDev[pkg] = m
+	}
+	m[branch] = true
+}
+
+func (vl *versionLister) devAdmitted(pkg, branch string) bool {
+	return vl.allowDev[pkg][branch]
 }
 
 func parseStabilityName(s string) constraint.Stability {
@@ -77,7 +95,9 @@ func (vl *versionLister) versions(ctx context.Context, pkg string) ([]listedVers
 			continue
 		}
 		if parsed.Stability < vl.minStab {
-			continue
+			if !(parsed.Stability == constraint.Dev && vl.devAdmitted(pkg, parsed.Branch)) {
+				continue
+			}
 		}
 		out = append(out, listedVersion{Raw: raw.Version, Parsed: parsed, Record: raw})
 	}

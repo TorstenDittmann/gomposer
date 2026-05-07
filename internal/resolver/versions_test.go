@@ -8,6 +8,63 @@ import (
 	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
 )
 
+type fakeLookup struct {
+	md map[string]*registry.PackageMetadata
+}
+
+func (f fakeLookup) Lookup(_ context.Context, name string) (*registry.PackageMetadata, error) {
+	if v, ok := f.md[name]; ok {
+		return v, nil
+	}
+	return nil, registry.ErrPackageNotFound
+}
+
+func TestVersionListerAdmitsExplicitDev(t *testing.T) {
+	src := fakeLookup{md: map[string]*registry.PackageMetadata{
+		"acme/lib": {
+			Name: "acme/lib",
+			Versions: []registry.PackageVersion{
+				{Name: "acme/lib", Version: "1.0.0", VersionNorm: "1.0.0.0"},
+				{Name: "acme/lib", Version: "dev-main", VersionNorm: "dev-main"},
+			},
+		},
+	}}
+	vl := newVersionLister(src, "stable")
+	vl.AllowDevBranch("acme/lib", "main")
+	got, err := vl.versions(context.Background(), "acme/lib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundDev bool
+	for _, v := range got {
+		if v.Raw == "dev-main" {
+			foundDev = true
+		}
+	}
+	if !foundDev {
+		t.Fatalf("expected dev-main to be admitted; got %+v", got)
+	}
+}
+
+func TestVersionListerStillFiltersUnlistedDev(t *testing.T) {
+	src := fakeLookup{md: map[string]*registry.PackageMetadata{
+		"acme/lib": {
+			Name: "acme/lib",
+			Versions: []registry.PackageVersion{
+				{Name: "acme/lib", Version: "1.0.0", VersionNorm: "1.0.0.0"},
+				{Name: "acme/lib", Version: "dev-feature", VersionNorm: "dev-feature"},
+			},
+		},
+	}}
+	vl := newVersionLister(src, "stable")
+	got, _ := vl.versions(context.Background(), "acme/lib")
+	for _, v := range got {
+		if v.Raw == "dev-feature" {
+			t.Fatalf("dev-feature should be filtered out without an allow entry")
+		}
+	}
+}
+
 func TestVersionListerSortedDesc(t *testing.T) {
 	src := testlookup.New(map[string][]registry.PackageVersion{
 		"a/a": {
