@@ -4,9 +4,20 @@ import (
 	"context"
 	"testing"
 
+	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/composer-go/internal/platform"
 	"github.com/torstendittmann/composer-go/internal/registry"
 	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
 )
+
+func mustVerRslv(t *testing.T, s string) constraint.Version {
+	t.Helper()
+	v, err := constraint.ParseVersion(s)
+	if err != nil {
+		t.Fatalf("ParseVersion(%q): %v", s, err)
+	}
+	return v
+}
 
 type fakeLookup struct {
 	md map[string]*registry.PackageMetadata
@@ -115,5 +126,65 @@ func TestVersionListerCachesWithinSolve(t *testing.T) {
 	b, _ := vl.versions(context.Background(), "a/a")
 	if &a[0] != &b[0] && a[0].Raw != b[0].Raw {
 		t.Errorf("results should be stable across calls")
+	}
+}
+
+func TestVersionListerFiltersIncompatibleByPlatform(t *testing.T) {
+	php82 := mustVerRslv(t, "8.2.0")
+	pf := &platform.Platform{PHPVersion: php82, Extensions: map[string]constraint.Version{}}
+
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"acme/widget": {
+			{Name: "acme/widget", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Require: map[string]string{"php": "^7.4"}},
+			{Name: "acme/widget", Version: "2.0.0", VersionNorm: "2.0.0.0",
+				Require: map[string]string{"php": "^8.0"}},
+		},
+	})
+	vl := newVersionLister(src, constraint.Stable.String())
+	vl.platform = pf
+
+	got, err := vl.versions(context.Background(), "acme/widget")
+	if err != nil {
+		t.Fatalf("versions: %v", err)
+	}
+	if len(got) != 1 || got[0].Record.Version != "2.0.0" {
+		t.Errorf("expected only 2.0.0 to survive php-8.2 filter; got %+v", got)
+	}
+}
+
+func TestVersionListerHonorsIgnoreAll(t *testing.T) {
+	php82 := mustVerRslv(t, "8.2.0")
+	pf := &platform.Platform{PHPVersion: php82}
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"acme/widget": {{
+			Name: "acme/widget", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Require: map[string]string{"php": "^7.4"},
+		}},
+	})
+	vl := newVersionLister(src, constraint.Stable.String())
+	vl.platform = pf
+	vl.ignorePlatformReqs = map[string]bool{"*": true}
+
+	got, _ := vl.versions(context.Background(), "acme/widget")
+	if len(got) != 1 {
+		t.Errorf("ignore-all should keep all candidates; got %d", len(got))
+	}
+}
+
+func TestVersionListerKeepsLibStar(t *testing.T) {
+	pf := &platform.Platform{PHPVersion: mustVerRslv(t, "8.2.0")}
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"acme/widget": {{
+			Name: "acme/widget", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Require: map[string]string{"lib-curl": ">=10.0"},
+		}},
+	})
+	vl := newVersionLister(src, constraint.Stable.String())
+	vl.platform = pf
+
+	got, _ := vl.versions(context.Background(), "acme/widget")
+	if len(got) != 1 {
+		t.Errorf("lib-* should NOT cause filtering; got %d", len(got))
 	}
 }

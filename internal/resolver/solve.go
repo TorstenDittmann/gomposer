@@ -8,6 +8,7 @@ import (
 	"github.com/torstendittmann/composer-go/internal/constraint"
 	"github.com/torstendittmann/composer-go/internal/lock"
 	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/composer-go/internal/platform"
 	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
@@ -19,10 +20,22 @@ type Input struct {
 	// IncludeDev includes require-dev when true. Default false matches
 	// `composer install --no-dev` semantics.
 	IncludeDev bool
-	// PlatformFingerprint is captured at resolution time and stored in the
-	// lockfile. The resolver itself doesn't enforce platform constraints in
-	// stage 1 (Plan 6 wires that in); the field is here so the cache key
-	// includes it.
+	// Platform, if non-nil, is used to filter candidate versions: any
+	// version whose require map contains an unsatisfiable php/ext-* req
+	// (and the req is not in IgnorePlatformReqs) is removed before
+	// PubGrub considers it.
+	//
+	// Stage 2 wires this in. Stage 1 left it nil (no filtering).
+	Platform *platform.Platform
+
+	// IgnorePlatformReqs is the set of platform-req names whose checks
+	// should be skipped entirely. Maps to the CLI's --ignore-platform-req
+	// flag (repeatable). A special key of "*" means "skip all" (mirrors
+	// Composer's --ignore-platform-reqs).
+	IgnorePlatformReqs map[string]bool
+
+	// PlatformFingerprint is the string form of Platform, retained for
+	// the resolution-result cache key.
 	PlatformFingerprint string
 	// MinimumStability defaults to "stable" if empty.
 	MinimumStability string
@@ -43,6 +56,8 @@ func Solve(ctx context.Context, in Input) (*Result, error) {
 		minStab = in.Manifest.MinimumStability
 	}
 	vl := newVersionLister(in.Source, minStab)
+	vl.platform = in.Platform
+	vl.ignorePlatformReqs = in.IgnorePlatformReqs
 
 	// Stability flags: explicit "dev-<branch>" requires admit that branch
 	// regardless of minStab (Composer-compatible behaviour).

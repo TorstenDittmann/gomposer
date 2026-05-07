@@ -11,6 +11,7 @@ import (
 
 	"github.com/torstendittmann/composer-go/internal/lock"
 	"github.com/torstendittmann/composer-go/internal/manifest"
+	platformpkg "github.com/torstendittmann/composer-go/internal/platform"
 	"github.com/torstendittmann/composer-go/internal/registry"
 	"github.com/torstendittmann/composer-go/internal/resolver"
 )
@@ -74,6 +75,7 @@ func (f *fakeSource) Lookup(_ context.Context, name string) (*registry.PackageMe
 }
 
 func TestResolveProducesLockFile(t *testing.T) {
+	platformpkg.SetTestPlatform(t, "8.2.0")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"),
 		[]byte(`{"name":"vendor/pkg","require":{"acme/leaf":"1.0.0"}}`), 0o644); err != nil {
@@ -94,7 +96,7 @@ func TestResolveProducesLockFile(t *testing.T) {
 	if len(got.Packages) != 1 || got.Packages[0].Name != "acme/leaf" {
 		t.Errorf("Packages = %+v", got.Packages)
 	}
-	if got.PlatformFingerprint != "php-unknown" {
+	if got.PlatformFingerprint != "php-8.2.0;ext-json;ext-mbstring" {
 		t.Errorf("PlatformFingerprint = %q", got.PlatformFingerprint)
 	}
 	if got.SchemaVersion != lock.SchemaVersion {

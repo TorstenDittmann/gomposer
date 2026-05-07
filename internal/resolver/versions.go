@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/composer-go/internal/platform"
 	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
@@ -25,6 +26,9 @@ type versionLister struct {
 	cache    map[string][]listedVersion
 	notFound map[string]bool
 	allowDev map[string]map[string]bool // pkg -> branch set
+
+	platform           *platform.Platform
+	ignorePlatformReqs map[string]bool
 }
 
 func newVersionLister(src registry.SourceLookup, minStability string) *versionLister {
@@ -69,6 +73,26 @@ func parseStabilityName(s string) constraint.Stability {
 	return constraint.Stable
 }
 
+// versionInstallable returns true when every platform req in the version's
+// require map is satisfied (or ignored) on the current platform. lib-* reqs
+// are always treated as installable: we never gate resolution on them.
+func (vl *versionLister) versionInstallable(rec registry.PackageVersion) bool {
+	if vl.platform == nil {
+		return true
+	}
+	if vl.ignorePlatformReqs != nil && vl.ignorePlatformReqs["*"] {
+		return true
+	}
+	violations := platform.Check(rec.Require, vl.platform, vl.ignorePlatformReqs)
+	for _, v := range violations {
+		if v.Kind == platform.ViolationLibIgnored {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // versions returns candidate versions for a package, newest-first, filtered
 // by minimum stability. ErrPackageNotFound is converted into a tagged miss
 // (caller decides whether to surface as Cause: CauseUnknownPackage).
@@ -87,9 +111,9 @@ func (vl *versionLister) versions(ctx context.Context, pkg string) ([]listedVers
 		}
 		return nil, err
 	}
-	out := make([]listedVersion, 0, len(md.Versions))
-	for _, raw := range md.Versions {
-		parsed, err := constraint.ParseVersion(raw.Version)
+	raw := make([]listedVersion, 0, len(md.Versions))
+	for _, rv := range md.Versions {
+		parsed, err := constraint.ParseVersion(rv.Version)
 		if err != nil {
 			// Skip unparseable; do not block the entire package on one bad row.
 			continue
@@ -99,9 +123,16 @@ func (vl *versionLister) versions(ctx context.Context, pkg string) ([]listedVers
 				continue
 			}
 		}
-		out = append(out, listedVersion{Raw: raw.Version, Parsed: parsed, Record: raw})
+		raw = append(raw, listedVersion{Raw: rv.Version, Parsed: parsed, Record: rv})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Parsed.Compare(out[j].Parsed) > 0 })
+	sort.Slice(raw, func(i, j int) bool { return raw[i].Parsed.Compare(raw[j].Parsed) > 0 })
+	// Platform filtering: drop versions whose platform reqs are not satisfied.
+	out := raw[:0]
+	for _, v := range raw {
+		if vl.versionInstallable(v.Record) {
+			out = append(out, v)
+		}
+	}
 	vl.cache[pkg] = out
 	return out, nil
 }
