@@ -99,3 +99,24 @@ func TestMaterializeAll(t *testing.T) {
 		t.Errorf("missing materialized file: %v", err)
 	}
 }
+
+func TestFetchAllRespectsContextCancel(t *testing.T) {
+	// A handler that blocks until the request context is cancelled.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	st, _ := store.New(t.TempDir())
+	f := New(st, srv.Client())
+	pvs := []registry.PackageVersion{
+		{Name: "v/slow", Version: "1", Dist: registry.Dist{Type: "zip", URL: srv.URL + "/slow"}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		// Cancel shortly after starting.
+		cancel()
+	}()
+	if err := f.FetchAll(ctx, pvs, 1); err == nil {
+		t.Fatal("expected cancellation error")
+	}
+}
