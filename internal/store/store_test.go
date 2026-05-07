@@ -77,3 +77,11 @@ func TestOpenReaderMissReturnsError(t *testing.T) {
 		t.Fatal("expected error on miss")
 	}
 }
+
+func TestProjectStoreDir(t *testing.T) {
+	got := ProjectStoreDir("/work/proj")
+	want := filepath.Join("/work/proj", ".composer-go", "store")
+	if got != want {
+		t.Errorf("ProjectStoreDir = %q, want %q", got, want)
+	}
+}
