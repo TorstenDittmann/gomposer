@@ -112,10 +112,16 @@ func (r *defaultRunner) runOne(ctx context.Context, event Event, body string, op
 		delete(visited, name)
 		return nil
 	case formShell:
-		return runShell(ctx, body, opts)
+		if err := runShell(ctx, body, opts); err != nil {
+			return fmt.Errorf("scripts: %s: %w", event, err)
+		}
+		return nil
 	case formPHPCallable:
 		class, method := a, b
-		return runPHPCallable(ctx, class, method, opts)
+		if err := runPHPCallable(ctx, class, method, opts); err != nil {
+			return fmt.Errorf("scripts: %s: %w", event, err)
+		}
+		return nil
 	default:
 		return fmt.Errorf("scripts: %s: internal: unknown form", event)
 	}
