@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -286,6 +287,24 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		all = append(all, lockFile.PackagesDev...)
 	}
 
+	// Platform warnings: emit, persist on the lockfile so cache-hit runs can
+	// re-emit them, and (in --no-dev) escalate to a hard error.
+	warnings, err := evaluatePlatformWarnings(all, ps.platform, ps.ignoreSet, opts.NoDev, opts.Quiet, os.Stderr)
+	if err != nil {
+		return err
+	}
+	if len(warnings) > 0 {
+		lockFile.Warnings = warnings
+	} else if !opts.NoDev {
+		// Replay-on-cache-hit: if we're using a cached/existing lock and it
+		// already has warnings, re-emit them now.
+		if !opts.Quiet {
+			for _, w := range lockFile.Warnings {
+				fmt.Fprintln(os.Stderr, "composer-go: "+w)
+			}
+		}
+	}
+
 	keys, err := fetchAll(ctx, all, opts.Fetcher, workerCount(opts.Workers))
 	if err != nil {
 		return err
@@ -305,6 +324,72 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		return err
 	}
 	return nil
+}
+
+// evaluatePlatformWarnings walks every package's require map, runs
+// platform.Check, and produces:
+//   - a slice of formatted warning strings (for the lockfile + future replay),
+//   - prints each to `stderr` unless `quiet` is set,
+//   - errors if `noDev` is true and any non-lib-* violation occurred.
+//
+// lib-* violations are coalesced into a single info-level message printed
+// at most once per call.
+func evaluatePlatformWarnings(
+	pkgs []lock.Package,
+	pf *platform.Platform,
+	ignored map[string]bool,
+	noDev bool,
+	quiet bool,
+	stderr io.Writer,
+) ([]string, error) {
+	if pf == nil {
+		// Platform was skipped (e.g. --ignore-platform); nothing to check.
+		return nil, nil
+	}
+	var (
+		warnings  []string
+		hardFails []string
+		sawLib    bool
+	)
+	for _, p := range pkgs {
+		violations := platform.Check(p.Require, pf, ignored)
+		for _, v := range violations {
+			if v.Kind == platform.ViolationLibIgnored {
+				sawLib = true
+				continue
+			}
+			line := formatViolation(p.Name, v)
+			warnings = append(warnings, line)
+			hardFails = append(hardFails, line)
+			if !quiet {
+				fmt.Fprintln(stderr, "composer-go: "+line)
+			}
+		}
+	}
+	if sawLib {
+		const libLine = "ignoring lib-* platform requirements (not implemented)"
+		warnings = append(warnings, libLine)
+		if !quiet {
+			fmt.Fprintln(stderr, "composer-go: "+libLine)
+		}
+	}
+	if noDev && len(hardFails) > 0 {
+		return warnings, fmt.Errorf("orchestrator: platform requirements unsatisfied (--no-dev): %d violation(s)", len(hardFails))
+	}
+	return warnings, nil
+}
+
+func formatViolation(pkg string, v platform.Violation) string {
+	switch v.Kind {
+	case platform.ViolationMissing:
+		return fmt.Sprintf("%s requires %s %q but %s", pkg, v.Req, v.Constraint, v.Have)
+	case platform.ViolationVersion:
+		return fmt.Sprintf("%s requires %s %q (have %s)", pkg, v.Req, v.Constraint, v.Have)
+	case platform.ViolationUnparseable:
+		return fmt.Sprintf("%s requires %s %q (unparseable constraint)", pkg, v.Req, v.Constraint)
+	default:
+		return fmt.Sprintf("%s requires %s %q", pkg, v.Req, v.Constraint)
+	}
 }
 
 // fetcherAdapter wraps fetcher.Fetcher to implement the orchestrator Fetcher
