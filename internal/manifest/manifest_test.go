@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -103,5 +104,23 @@ func TestParseStabilityDefaults(t *testing.T) {
 	}
 	if m.PreferStable {
 		t.Errorf("PreferStable = true, want false")
+	}
+}
+
+func TestParseAutoloadExcludeFromClassmap(t *testing.T) {
+	input := []byte(`{
+		"name": "vendor/pkg",
+		"autoload": {
+			"classmap": ["src/"],
+			"exclude-from-classmap": ["**/Tests/", "**/Fixtures/"]
+		}
+	}`)
+	m, err := Parse(input)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []string{"**/Tests/", "**/Fixtures/"}
+	if !reflect.DeepEqual(m.Autoload.ExcludeFromClassmap, want) {
+		t.Errorf("got %v, want %v", m.Autoload.ExcludeFromClassmap, want)
 	}
 }

@@ -51,20 +51,9 @@ func CollectClassmap(projectDir string, root manifest.Autoload, entries []Entry)
 	return out, nil
 }
 
-// rootExcludePatterns reads the root manifest's exclude-from-classmap. The
-// manifest.Autoload struct may grow this field in a follow-up patch; until
-// then we look for a typed accessor and fall back to nil.
+// rootExcludePatterns reads the root manifest's exclude-from-classmap.
 func rootExcludePatterns(a manifest.Autoload) []string {
-	// manifest.Autoload.ExcludeFromClassmap is added in a tiny follow-up to
-	// Stage-1 Plan 1; until then, return nil so existing manifests keep
-	// working unchanged.
-	type hasExclude interface {
-		excludeFromClassmap() []string
-	}
-	if h, ok := any(a).(hasExclude); ok {
-		return h.excludeFromClassmap()
-	}
-	return nil
+	return a.ExcludeFromClassmap
 }
 
 func scanInto(out map[string]string, projectDir, installPath, raw string, excl *excludeMatcher) error {
