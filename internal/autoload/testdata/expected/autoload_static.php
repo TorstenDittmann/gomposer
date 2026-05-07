@@ -7,7 +7,7 @@ namespace Composer\Autoload;
 class ComposerStaticInitcd4abb5c1a428281a6432bd0afc8d785
 {
     public static $files = array(
-        '0504388a4555084b5673da0172ddce99' => $vendorDir . '/symfony/polyfill-mbstring/bootstrap.php',
+        '0504388a4555084b5673da0172ddce99' => __DIR__ . '/..' . '/symfony/polyfill-mbstring/bootstrap.php',
     );
 
     public static $prefixLengthsPsr4 = array(
@@ -23,10 +23,10 @@ class ComposerStaticInitcd4abb5c1a428281a6432bd0afc8d785
     );
 
     public static $classMap = array(
-        'Acme\\Legacy\\Loud' => $vendorDir . '/acme/legacy/src/Old.php',
-        'Acme\\Legacy\\Old' => $vendorDir . '/acme/legacy/src/Old.php',
-        'Acme\\Legacy\\Speaker' => $vendorDir . '/acme/legacy/src/Old.php',
-        'Acme\\Legacy\\Sub\\Color' => $vendorDir . '/acme/legacy/src/sub/Sub.php',
+        'Acme\\Legacy\\Loud' => __DIR__ . '/..' . '/acme/legacy/src/Old.php',
+        'Acme\\Legacy\\Old' => __DIR__ . '/..' . '/acme/legacy/src/Old.php',
+        'Acme\\Legacy\\Speaker' => __DIR__ . '/..' . '/acme/legacy/src/Old.php',
+        'Acme\\Legacy\\Sub\\Color' => __DIR__ . '/..' . '/acme/legacy/src/sub/Sub.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

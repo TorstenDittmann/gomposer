@@ -199,7 +199,7 @@ class ComposerStaticInit{{.Hash}}
 {
     public static $files = array(
 {{- range $f := .Files}}
-        {{phpString (fileKey $f)}} => {{phpDir $f.Path}},
+        {{phpString (fileKey $f)}} => {{phpStaticDir $f.Path}},
 {{- end}}
     );
 
@@ -217,7 +217,7 @@ class ComposerStaticInit{{.Hash}}
 
     public static $classMap = array(
 {{- range $name := .SortedClasses}}
-        {{phpString $name}} => {{phpDir (index $.Classmap $name)}},
+        {{phpString $name}} => {{phpStaticDir (index $.Classmap $name)}},
 {{- end}}
     );
 

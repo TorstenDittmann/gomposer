@@ -292,38 +292,28 @@ func TestEndToEndPHPClassResolution(t *testing.T) {
 	}
 
 	if err := Generate(Options{
-		ProjectDir: dir,
-		Entries: []Entry{
-			{
-				Name:        "acme/foo",
-				Version:     "1.0.0",
-				InstallPath: "vendor/acme/foo",
-				Autoload:    registry.Autoload{PSR4: map[string]any{"Acme\\Foo\\": "src/"}},
-			},
-			{
-				Name:        "acme/bar",
-				Version:     "1.0.0",
-				InstallPath: "vendor/acme/bar",
-				Autoload:    registry.Autoload{PSR4: map[string]any{"Acme\\Bar\\": "src/"}},
-			},
-		},
-		RootAutoload: manifest.Autoload{PSR4: map[string]string{"App\\": "src/"}},
+		ProjectDir:   dir,
+		Entries:      fixtureEntries(),
+		RootAutoload: fixtureRoot(),
 	}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
 
 	cases := []struct {
-		class string
-		want  string // PHP echoes "1" if class_exists is true, "" otherwise
+		expr string
+		want string
 	}{
-		{`App\\Foo`, "1"},
-		{`Acme\\Foo\\Foo`, "1"},
-		{`Acme\\Bar\\Bar`, "1"},
-		{`Nope\\Missing`, ""},
+		{`class_exists('App\\Foo') ? '1' : ''`, "1"},
+		{`class_exists('Acme\\Foo\\Foo') ? '1' : ''`, "1"},
+		{`class_exists('Acme\\Bar\\Bar') ? '1' : ''`, "1"},
+		{`class_exists('Symfony\\Polyfill\\Mbstring\\Mbstring') ? '1' : ''`, "1"},
+		{`class_exists('Acme\\Legacy\\Old') ? '1' : ''`, "1"},
+		{`class_exists('Acme\\Legacy\\Tests\\HiddenTest') ? '1' : ''`, ""},
+		{`function_exists('mb_strlen') ? '1' : ''`, "1"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.class, func(t *testing.T) {
-			script := "require 'vendor/autoload.php'; echo class_exists('" + tc.class + "') ? '1' : '';"
+		t.Run(tc.expr, func(t *testing.T) {
+			script := "require 'vendor/autoload.php'; echo (" + tc.expr + ");"
 			cmd := exec.Command("php", "-r", script)
 			cmd.Dir = dir
 			out, err := cmd.CombinedOutput()
@@ -331,7 +321,7 @@ func TestEndToEndPHPClassResolution(t *testing.T) {
 				t.Fatalf("php failed: %v\noutput:\n%s", err, out)
 			}
 			if string(out) != tc.want {
-				t.Errorf("class_exists(%s) = %q, want %q", tc.class, string(out), tc.want)
+				t.Errorf("(%s) = %q, want %q", tc.expr, string(out), tc.want)
 			}
 		})
 	}
