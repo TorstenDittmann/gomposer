@@ -132,14 +132,24 @@ func undecidedPackages(ps *PartialSolution) []string {
 }
 
 // filterByActiveConstraints keeps only versions of pkg that satisfy the
-// conjunction of positive derivations currently in the partial solution.
+// conjunction of ALL derivations (positive and negative) currently in the
+// partial solution. Positive derivations require the version to satisfy the
+// constraint; negative derivations require the version to NOT satisfy the
+// constraint.
 func filterByActiveConstraints(ps *PartialSolution, pkg string, vs []listedVersion) []listedVersion {
-	terms := ps.PositiveDerivations(pkg)
+	var allTerms []Term
+	for _, a := range ps.Assignments {
+		if a.IsDecision || a.Package != pkg {
+			continue
+		}
+		allTerms = append(allTerms, a.Term)
+	}
 	out := make([]listedVersion, 0, len(vs))
 nextV:
 	for _, v := range vs {
-		for _, t := range terms {
-			if !t.Constraint.Satisfies(v.Parsed) {
+		for _, t := range allTerms {
+			// t.Satisfies checks the term (positive: must satisfy; negative: must not satisfy)
+			if !t.Satisfies(v.Parsed) {
 				continue nextV
 			}
 		}

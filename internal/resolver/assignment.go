@@ -113,15 +113,37 @@ func (ps *PartialSolution) PositiveDerivations(pkg string) []Term {
 //   - Disjoint:    no version that could still be chosen satisfies the term
 //   - Overlapping: in between
 //
-// The implementation uses the most recent decision (if any) as a sound oracle:
-// when a decision is present, the package is fully determined and the answer
-// is exact. Otherwise we conservatively return Overlapping.
+// When a decision is present, the package is fully determined and the answer
+// is exact. When only derivations are present, we check the derivation terms:
+// a positive derivation with identical constraint implies the term is Subset
+// (for positive) or Disjoint (for negative); a negative derivation with
+// identical constraint implies Disjoint (for positive) or Subset (for
+// negative). Otherwise we conservatively return Overlapping.
 func (ps *PartialSolution) RelationOf(t Term) Relation {
 	if v, ok := ps.decisions[t.Package]; ok {
 		if t.Satisfies(v) {
 			return Subset
 		}
 		return Disjoint
+	}
+	// Check derivations for the same package.
+	for _, a := range ps.Assignments {
+		if a.IsDecision || a.Package != t.Package {
+			continue
+		}
+		d := a.Term
+		// If the derivation has the same sign and same constraint as t,
+		// the partial solution already asserts exactly t → Subset.
+		if d.Positive == t.Positive &&
+			d.Constraint.Original == t.Constraint.Original {
+			return Subset
+		}
+		// If the derivation is the logical inverse of t (same constraint,
+		// opposite sign), then the partial solution contradicts t → Disjoint.
+		if d.Positive != t.Positive &&
+			d.Constraint.Original == t.Constraint.Original {
+			return Disjoint
+		}
 	}
 	return Overlapping
 }
