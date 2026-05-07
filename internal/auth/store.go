@@ -86,7 +86,14 @@ func normHost(h string) string {
 
 // Store is the merged credential index.
 type Store struct {
-	merged file // post-merge view
+	merged   file // post-merge view
+	warnings []string
+}
+
+// Warnings returns advisory messages produced while loading (currently
+// only file-permission complaints). Callers should print these to stderr.
+func (s *Store) Warnings() []string {
+	return s.warnings
 }
 
 // loadStore reads both files (either may be empty string to skip) and
@@ -94,12 +101,16 @@ type Store struct {
 func loadStore(composerPath, userPath string) (*Store, error) {
 	composer := &file{}
 	user := &file{}
+	var warns []string
 	if composerPath != "" {
 		f, err := loadOptional(composerPath)
 		if err != nil {
 			return nil, err
 		}
 		composer = f
+		if w := warnIfInsecurePermissions(composerPath); w != "" {
+			warns = append(warns, w)
+		}
 	}
 	if userPath != "" {
 		f, err := loadOptional(userPath)
@@ -107,8 +118,11 @@ func loadStore(composerPath, userPath string) (*Store, error) {
 			return nil, err
 		}
 		user = f
+		if w := warnIfInsecurePermissions(userPath); w != "" {
+			warns = append(warns, w)
+		}
 	}
-	return &Store{merged: mergeFiles(composer, user)}, nil
+	return &Store{merged: mergeFiles(composer, user), warnings: warns}, nil
 }
 
 // Lookup returns the credential registered for host (case-insensitive,

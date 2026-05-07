@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -92,5 +93,19 @@ func TestStoreAllKindsResolve(t *testing.T) {
 		if !ok || c.Kind != tc.want {
 			t.Errorf("host=%s: ok=%v kind=%s, want %s", tc.host, ok, c.Kind, tc.want)
 		}
+	}
+}
+
+func TestStoreSurfacesPermWarning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "user.json")
+	writeFile(t, path, `{}`)
+	_ = os.Chmod(path, 0o644)
+	s, _ := loadStore("", path)
+	if len(s.Warnings()) == 0 {
+		t.Error("expected at least one warning")
 	}
 }
