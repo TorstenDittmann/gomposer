@@ -44,3 +44,52 @@ func TestParseRangeOps(t *testing.T) {
 		}
 	}
 }
+
+func TestParseCaret(t *testing.T) {
+	cases := []struct {
+		constraint, version string
+		want                bool
+	}{
+		{"^1.2.3", "1.2.3", true},
+		{"^1.2.3", "1.9.9", true},
+		{"^1.2.3", "1.2.2", false},
+		{"^1.2.3", "2.0.0", false},
+		{"^0.3.0", "0.3.5", true},
+		{"^0.3.0", "0.4.0", false},
+	}
+	for _, tc := range cases {
+		c, err := Parse(tc.constraint)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", tc.constraint, err)
+			continue
+		}
+		v, _ := ParseVersion(tc.version)
+		if got := c.Satisfies(v); got != tc.want {
+			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}
+
+func TestParseTilde(t *testing.T) {
+	cases := []struct {
+		constraint, version string
+		want                bool
+	}{
+		{"~1.2.3", "1.2.3", true},
+		{"~1.2.3", "1.2.9", true},
+		{"~1.2.3", "1.3.0", false},
+		{"~1.2", "1.5.0", true},
+		{"~1.2", "2.0.0", false},
+	}
+	for _, tc := range cases {
+		c, err := Parse(tc.constraint)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", tc.constraint, err)
+			continue
+		}
+		v, _ := ParseVersion(tc.version)
+		if got := c.Satisfies(v); got != tc.want {
+			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}

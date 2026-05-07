@@ -103,53 +103,76 @@ func parseAndClause(s string) ([]term, error) {
 	return out, nil
 }
 
-// parseTerm returns a slice because some operators (^, ~) expand to two
-// terms (a lower bound AND an upper bound).
 func parseTerm(f string) ([]term, error) {
 	if len(f) == 0 {
 		return nil, fmt.Errorf("constraint: empty term")
 	}
 	switch {
+	case strings.HasPrefix(f, "^"):
+		return caretTerms(f[1:])
+	case strings.HasPrefix(f, "~"):
+		return tildeTerms(f[1:])
 	case strings.HasPrefix(f, ">="):
-		v, err := ParseVersion(f[2:])
-		if err != nil {
-			return nil, err
-		}
-		return []term{{OpGe, v}}, nil
+		return singleOp(OpGe, f[2:])
 	case strings.HasPrefix(f, "<="):
-		v, err := ParseVersion(f[2:])
-		if err != nil {
-			return nil, err
-		}
-		return []term{{OpLe, v}}, nil
+		return singleOp(OpLe, f[2:])
 	case strings.HasPrefix(f, "!="):
-		v, err := ParseVersion(f[2:])
-		if err != nil {
-			return nil, err
-		}
-		return []term{{OpNe, v}}, nil
+		return singleOp(OpNe, f[2:])
 	case strings.HasPrefix(f, ">"):
-		v, err := ParseVersion(f[1:])
-		if err != nil {
-			return nil, err
-		}
-		return []term{{OpGt, v}}, nil
+		return singleOp(OpGt, f[1:])
 	case strings.HasPrefix(f, "<"):
-		v, err := ParseVersion(f[1:])
-		if err != nil {
-			return nil, err
-		}
-		return []term{{OpLt, v}}, nil
+		return singleOp(OpLt, f[1:])
 	case strings.HasPrefix(f, "="):
-		v, err := ParseVersion(f[1:])
-		if err != nil {
-			return nil, err
-		}
-		return []term{{OpEq, v}}, nil
+		return singleOp(OpEq, f[1:])
 	}
-	v, err := ParseVersion(f)
+	return singleOp(OpEq, f)
+}
+
+func singleOp(op Op, s string) ([]term, error) {
+	v, err := ParseVersion(s)
 	if err != nil {
 		return nil, err
 	}
-	return []term{{OpEq, v}}, nil
+	return []term{{op, v}}, nil
+}
+
+// caretTerms expands "^X.Y.Z" to ">=X.Y.Z" AND "<NEXT.0.0" where NEXT = X+1
+// for X>0; for X==0, the upper bound becomes "<0.(Y+1).0".
+func caretTerms(s string) ([]term, error) {
+	v, err := ParseVersion(s)
+	if err != nil {
+		return nil, err
+	}
+	upper := nextCaretUpper(v)
+	return []term{{OpGe, v}, {OpLt, upper}}, nil
+}
+
+func nextCaretUpper(v Version) Version {
+	if v.Major > 0 {
+		return Version{Major: v.Major + 1, Stability: Stable}
+	}
+	return Version{Major: 0, Minor: v.Minor + 1, Stability: Stable}
+}
+
+// tildeTerms expands "~X.Y.Z" to ">=X.Y.Z, <X.(Y+1).0" and
+// "~X.Y" to ">=X.Y.0, <(X+1).0.0".
+func tildeTerms(s string) ([]term, error) {
+	v, err := ParseVersion(s)
+	if err != nil {
+		return nil, err
+	}
+	upper := nextTildeUpper(s, v)
+	return []term{{OpGe, v}, {OpLt, upper}}, nil
+}
+
+func nextTildeUpper(s string, v Version) Version {
+	base := s
+	if i := strings.IndexAny(s, "-+"); i >= 0 {
+		base = s[:i]
+	}
+	dots := strings.Count(base, ".")
+	if dots >= 2 {
+		return Version{Major: v.Major, Minor: v.Minor + 1, Stability: Stable}
+	}
+	return Version{Major: v.Major + 1, Stability: Stable}
 }
