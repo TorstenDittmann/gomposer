@@ -25,11 +25,26 @@ type entryHeader struct {
 	StatusCode   int    `json:"status"`
 }
 
+// CredentialsResolver returns a value suitable for the Authorization header
+// for the given hostname, plus an ok flag.
+//
+// Implementations typically wrap auth.Store: callers convert the resolved
+// auth.Credentials into a single header value via Credentials.AuthorizationHeader().
+type CredentialsResolver interface {
+	AuthHeader(host string) (value string, ok bool)
+}
+
+// CredentialsFunc adapts a function to CredentialsResolver.
+type CredentialsFunc func(host string) (string, bool)
+
+func (f CredentialsFunc) AuthHeader(host string) (string, bool) { return f(host) }
+
 // Cache reads-through to an HTTP client and persists 200 responses
 // keyed by sha256(URL).
 type Cache struct {
-	dir    string
-	client *http.Client
+	dir         string
+	client      *http.Client
+	Credentials CredentialsResolver // optional; nil means no auth injection
 }
 
 // New creates a cache rooted at dir. Subdirectories are created lazily.
@@ -59,6 +74,12 @@ func (c *Cache) Get(ctx context.Context, url string) ([]byte, error) {
 		}
 		if hdr.LastModified != "" {
 			req.Header.Set("If-Modified-Since", hdr.LastModified)
+		}
+	}
+
+	if c.Credentials != nil {
+		if v, ok := c.Credentials.AuthHeader(req.URL.Host); ok && v != "" {
+			req.Header.Set("Authorization", v)
 		}
 	}
 
