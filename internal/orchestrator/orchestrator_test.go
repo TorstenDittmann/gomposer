@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
 func TestInstallRequiresManifest(t *testing.T) {
@@ -50,5 +53,46 @@ func TestCacheKeyChangesWithPlatform(t *testing.T) {
 	b := computeCacheKey([]byte(`m`), nil, "php-8.2.0;ext-json")
 	if a == b {
 		t.Errorf("expected different keys for different platforms")
+	}
+}
+
+// fakeSource implements registry.SourceLookup for tests.
+type fakeSource struct {
+	pkgs map[string]*registry.PackageMetadata
+}
+
+func (f *fakeSource) Lookup(_ context.Context, name string) (*registry.PackageMetadata, error) {
+	if v, ok := f.pkgs[name]; ok {
+		return v, nil
+	}
+	return nil, registry.ErrPackageNotFound
+}
+
+func TestResolveProducesLockFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"),
+		[]byte(`{"name":"vendor/pkg","require":{"acme/leaf":"1.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+		"acme/leaf": {Name: "acme/leaf", Versions: []registry.PackageVersion{{
+			Name: "acme/leaf", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Dist: registry.Dist{Type: "zip", URL: "http://fixture/leaf-1.0.0.zip", Sha: "deadbeef"},
+		}}},
+	}}
+
+	got, err := resolveOnly(context.Background(), Options{ProjectDir: dir, Source: src})
+	if err != nil {
+		t.Fatalf("resolveOnly: %v", err)
+	}
+	if len(got.Packages) != 1 || got.Packages[0].Name != "acme/leaf" {
+		t.Errorf("Packages = %+v", got.Packages)
+	}
+	if got.PlatformFingerprint != "php-unknown" {
+		t.Errorf("PlatformFingerprint = %q", got.PlatformFingerprint)
+	}
+	if got.SchemaVersion != lock.SchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", got.SchemaVersion, lock.SchemaVersion)
 	}
 }

@@ -93,11 +93,12 @@ func workerCount(opt int) int {
 	return 4
 }
 
-// run is filled in by subsequent tasks. Stage 1: empty manifest path.
 func run(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool) error {
 	if len(m.Require) == 0 && len(m.RequireDev) == 0 {
-		// Nothing to do; the empty-pipeline test exercises this branch.
 		return nil
 	}
-	return errors.New("orchestrator: pipeline not yet wired (later tasks)")
+	if opts.NoNetwork {
+		return errors.New("orchestrator: NoNetwork is set but manifest has requires")
+	}
+	return runFullPipeline(ctx, opts, m, forceResolve)
 }
