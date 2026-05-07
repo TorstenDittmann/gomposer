@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -15,6 +16,13 @@ import (
 	"github.com/torstendittmann/composer-go/internal/registry"
 	"github.com/torstendittmann/composer-go/internal/resolver"
 )
+
+// resetPlatformProbeForTest installs a fake PHP version (with a generic
+// extension set) into the platform package's process cache. Idempotent.
+func resetPlatformProbeForTest(t *testing.T, phpVersion string) {
+	t.Helper()
+	platformpkg.SetTestPlatform(t, phpVersion)
+}
 
 func TestInstallRequiresManifest(t *testing.T) {
 	dir := t.TempDir()
@@ -346,5 +354,104 @@ func TestRegistryAutoloadFromMapExtractsFilesClassmap(t *testing.T) {
 	}
 	if !reflect.DeepEqual(excl, []string{"**/Tests/"}) {
 		t.Errorf("exclude = %v", excl)
+	}
+}
+
+func TestInstallEmitsPlatformWarningsAndPersistsOnLock(t *testing.T) {
+	resetPlatformProbeForTest(t, "8.2.14")
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"),
+		[]byte(`{"name":"vendor/pkg","require":{"acme/leaf":"1.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+		"acme/leaf": {Name: "acme/leaf", Versions: []registry.PackageVersion{{
+			Name: "acme/leaf", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Dist:    registry.Dist{Type: "zip", URL: "u", Sha: "s"},
+			Require: map[string]string{"php": "^7.4"},
+		}}},
+	}}
+
+	opts := Options{
+		ProjectDir:   dir,
+		Source:       src,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	f, err := lock.Decode(data)
+	if err != nil {
+		t.Fatalf("decode lock: %v", err)
+	}
+	if len(f.Warnings) == 0 {
+		t.Errorf("expected platform warning persisted on lock; got %+v", f.Warnings)
+	}
+}
+
+func TestInstallNoDevFailsOnPlatformMismatch(t *testing.T) {
+	resetPlatformProbeForTest(t, "8.2.14")
+
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "composer.json"),
+		[]byte(`{"name":"x/y","require":{"acme/leaf":"1.0.0"}}`), 0o644)
+	src := &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+		"acme/leaf": {Name: "acme/leaf", Versions: []registry.PackageVersion{{
+			Name: "acme/leaf", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Dist:    registry.Dist{Type: "zip", URL: "u", Sha: "s"},
+			Require: map[string]string{"php": "^7.4"},
+		}}},
+	}}
+	opts := Options{
+		ProjectDir:   dir,
+		NoDev:        true,
+		Source:       src,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+	}
+	if err := Install(context.Background(), opts); err == nil {
+		t.Error("--no-dev should fail when platform req unsatisfied")
+	}
+}
+
+func TestInstallIgnorePlatformReqSuppresses(t *testing.T) {
+	resetPlatformProbeForTest(t, "8.2.14")
+
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "composer.json"),
+		[]byte(`{"name":"x/y","require":{"acme/leaf":"1.0.0"}}`), 0o644)
+	src := &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+		"acme/leaf": {Name: "acme/leaf", Versions: []registry.PackageVersion{{
+			Name: "acme/leaf", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Dist:    registry.Dist{Type: "zip", URL: "u", Sha: "s"},
+			Require: map[string]string{"php": "^7.4"},
+		}}},
+	}}
+	opts := Options{
+		ProjectDir:         dir,
+		Source:             src,
+		Fetcher:            &fakeFetcher{},
+		Materializer:       &fakeMaterializer{},
+		Autoloader:         &fakeAutoloader{},
+		IgnorePlatformReqs: []string{"php"},
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	f, _ := lock.Decode(data)
+	for _, w := range f.Warnings {
+		if strings.Contains(w, "acme/leaf") {
+			t.Errorf("warning should be suppressed: %q", w)
+		}
 	}
 }

@@ -127,11 +127,17 @@ func (vl *versionLister) versions(ctx context.Context, pkg string) ([]listedVers
 	}
 	sort.Slice(raw, func(i, j int) bool { return raw[i].Parsed.Compare(raw[j].Parsed) > 0 })
 	// Platform filtering: drop versions whose platform reqs are not satisfied.
-	out := raw[:0]
+	// If ALL versions are incompatible, keep them all so that the resolver can
+	// still pick the best one — the orchestrator will emit warnings afterward.
+	filtered := make([]listedVersion, 0, len(raw))
 	for _, v := range raw {
 		if vl.versionInstallable(v.Record) {
-			out = append(out, v)
+			filtered = append(filtered, v)
 		}
+	}
+	out := raw
+	if len(filtered) > 0 {
+		out = filtered
 	}
 	vl.cache[pkg] = out
 	return out, nil
