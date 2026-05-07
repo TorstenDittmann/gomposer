@@ -26,10 +26,16 @@ func newUpdateCmd() *cobra.Command {
 			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
+			ignored := append([]string(nil), flagIgnorePlatformReqs...)
+			if flagIgnorePlatform {
+				ignored = append(ignored, "*")
+			}
 			return orchestrator.Update(ctx, orchestrator.Options{
-				ProjectDir: projectDir,
-				NoDev:      flagNoDev,
-				Verbose:    flagVerbose,
+				ProjectDir:         projectDir,
+				NoDev:              flagNoDev,
+				Verbose:            flagVerbose,
+				Quiet:              flagQuiet,
+				IgnorePlatformReqs: ignored,
 			})
 		},
 	}

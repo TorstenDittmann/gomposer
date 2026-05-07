@@ -15,3 +15,20 @@ func TestInstallFailsWithoutManifest(t *testing.T) {
 		t.Error("install with no composer.json should fail")
 	}
 }
+
+func TestInstallAcceptsIgnorePlatformReqRepeated(t *testing.T) {
+	// Reset flag state before the test to avoid cross-test contamination.
+	flagIgnorePlatformReqs = nil
+	root := newRootCmd()
+	root.SetArgs([]string{"install",
+		"--project", t.TempDir(),
+		"--ignore-platform-req=php",
+		"--ignore-platform-req=ext-curl",
+	})
+	// Will fail at orchestrator level (no manifest), but we only assert
+	// flag parsing works.
+	_ = root.Execute()
+	if len(flagIgnorePlatformReqs) != 2 {
+		t.Errorf("flagIgnorePlatformReqs = %+v", flagIgnorePlatformReqs)
+	}
+}
