@@ -32,11 +32,13 @@ func TestPhpDirProjectPath(t *testing.T) {
 }
 
 func TestRenderAllProducesAllSlots(t *testing.T) {
+	sorted := []string{"App\\"}
 	d := renderData{
-		InitClass:  "ComposerAutoloaderInit" + strings.Repeat("a", 32),
-		Hash:       strings.Repeat("a", 32),
-		PSR4:       map[string][]string{"App\\": {"src/"}},
-		SortedPSR4: []string{"App\\"},
+		InitClass:       "ComposerAutoloaderInit" + strings.Repeat("a", 32),
+		Hash:            strings.Repeat("a", 32),
+		PSR4:            map[string][]string{"App\\": {"src/"}},
+		SortedPSR4:      sorted,
+		PSR4ByFirstChar: buildFirstCharGroups(sorted),
 	}
 	out, err := renderAll(d)
 	if err != nil {

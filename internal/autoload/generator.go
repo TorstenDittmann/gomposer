@@ -37,11 +37,13 @@ func Generate(opts Options) error {
 		return errors.New("autoload: ProjectDir must be absolute")
 	}
 	psr4 := CollectPSR4(opts.ProjectDir, opts.RootAutoload, opts.Entries)
+	sorted := SortedPrefixes(psr4)
 	data := renderData{
-		InitClass:  InitClassName(opts.ProjectDir),
-		Hash:       InitHash(opts.ProjectDir),
-		PSR4:       psr4,
-		SortedPSR4: SortedPrefixes(psr4),
+		InitClass:       InitClassName(opts.ProjectDir),
+		Hash:            InitHash(opts.ProjectDir),
+		PSR4:            psr4,
+		SortedPSR4:      sorted,
+		PSR4ByFirstChar: buildFirstCharGroups(sorted),
 	}
 
 	out, err := renderAll(data)
