@@ -25,6 +25,12 @@ type Manifest struct {
 	// required fields) is performed by Repository.Validate, called by the
 	// orchestrator at startup so misconfigurations surface before any I/O.
 	Repositories []Repository `json:"-"`
+
+	// Scripts maps event names ("post-install-cmd", etc.) to one or more
+	// script bodies that fire sequentially. Composer's wire format accepts
+	// either a single string or an array of strings per event; the custom
+	// decoder below normalizes both into []string.
+	Scripts map[string][]string `json:"-"`
 }
 
 // Repository is one entry from composer.json `repositories`. Fields beyond
@@ -36,11 +42,12 @@ type Repository struct {
 	Raw  map[string]any `json:"-"`
 }
 
-// rawManifest mirrors Manifest but with Repositories as json.RawMessage so we
-// can disambiguate array vs map at decode time.
+// rawManifest mirrors Manifest but with Repositories and Scripts as
+// json.RawMessage so we can disambiguate special forms at decode time.
 type rawManifest struct {
 	Manifest
-	Repositories json.RawMessage `json:"repositories,omitempty"`
+	Repositories json.RawMessage            `json:"repositories,omitempty"`
+	Scripts      map[string]json.RawMessage `json:"scripts,omitempty"`
 }
 
 // Parse decodes a composer.json byte slice. The error message includes the
@@ -58,7 +65,39 @@ func Parse(data []byte) (*Manifest, error) {
 		}
 		m.Repositories = repos
 	}
+	if len(raw.Scripts) > 0 {
+		scripts, err := decodeScripts(raw.Scripts)
+		if err != nil {
+			return nil, fmt.Errorf("manifest: scripts: %w", err)
+		}
+		m.Scripts = scripts
+	}
 	return &m, nil
+}
+
+// decodeScripts normalizes the per-event JSON body into []string. Accepts:
+//   - a single JSON string  -> []string{value}
+//   - a JSON array of strings -> the array
+//
+// Any other shape returns an error.
+func decodeScripts(raw map[string]json.RawMessage) (map[string][]string, error) {
+	out := make(map[string][]string, len(raw))
+	for event, body := range raw {
+		// Try string first.
+		var s string
+		if err := json.Unmarshal(body, &s); err == nil {
+			out[event] = []string{s}
+			continue
+		}
+		// Then array of strings.
+		var arr []string
+		if err := json.Unmarshal(body, &arr); err == nil {
+			out[event] = arr
+			continue
+		}
+		return nil, fmt.Errorf("event %q: must be a string or array of strings", event)
+	}
+	return out, nil
 }
 
 func parseRepositories(data []byte) ([]Repository, error) {
