@@ -1,0 +1,18 @@
+# Binaries
+/composer-go
+/dist/
+
+# Go
+*.test
+*.out
+/coverage.out
+
+# Project caches
+/.composer-go/
+/vendor/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
