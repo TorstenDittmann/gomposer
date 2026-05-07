@@ -18,6 +18,11 @@ type Entry struct {
 	Version     string
 	InstallPath string // e.g. "vendor/acme/foo"
 	Autoload    registry.Autoload
+	// ExcludeFromClassmap holds the package's autoload.exclude-from-classmap
+	// patterns. Each is a glob in Composer's dialect (`**/Tests/`,
+	// `**/*Test.php`); see exclude.go for the full grammar. Empty for
+	// packages that don't declare one.
+	ExcludeFromClassmap []string
 }
 
 // CollectPSR4 merges PSR-4 prefixes from the root manifest's autoload
