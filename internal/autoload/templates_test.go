@@ -32,13 +32,11 @@ func TestPhpDirProjectPath(t *testing.T) {
 }
 
 func TestRenderAllProducesAllSlots(t *testing.T) {
-	sorted := []string{"App\\"}
 	d := renderData{
-		InitClass:       "ComposerAutoloaderInit" + strings.Repeat("a", 32),
-		Hash:            strings.Repeat("a", 32),
-		PSR4:            map[string][]string{"App\\": {"src/"}},
-		SortedPSR4:      sorted,
-		PSR4ByFirstChar: buildFirstCharGroups(sorted),
+		InitClass:  "ComposerAutoloaderInit" + strings.Repeat("a", 32),
+		Hash:       strings.Repeat("a", 32),
+		PSR4:       map[string][]string{"App\\": {"src/"}},
+		SortedPSR4: []string{"App\\"},
 	}
 	out, err := renderAll(d)
 	if err != nil {
@@ -58,5 +56,16 @@ func TestRenderAllProducesAllSlots(t *testing.T) {
 		if _, ok := out[p]; !ok {
 			t.Errorf("missing output: %s", p)
 		}
+	}
+}
+
+func TestFileKeyIsStable(t *testing.T) {
+	a := fileKey(FileEntry{Path: "vendor/x/y/z.php", PackageName: "x/y"})
+	b := fileKey(FileEntry{Path: "vendor/x/y/z.php", PackageName: "x/y"})
+	if a != b {
+		t.Errorf("non-deterministic fileKey: %s vs %s", a, b)
+	}
+	if len(a) != 32 {
+		t.Errorf("fileKey length = %d, want 32", len(a))
 	}
 }
