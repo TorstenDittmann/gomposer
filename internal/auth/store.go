@@ -80,3 +80,104 @@ func normHost(h string) string {
 	}
 	return h
 }
+
+// Store is the merged credential index.
+type Store struct {
+	merged file // post-merge view
+}
+
+// loadStore reads both files (either may be empty string to skip) and
+// merges with user winning per-host-per-kind on collision.
+func loadStore(composerPath, userPath string) (*Store, error) {
+	composer := &file{}
+	user := &file{}
+	if composerPath != "" {
+		f, err := loadOptional(composerPath)
+		if err != nil {
+			return nil, err
+		}
+		composer = f
+	}
+	if userPath != "" {
+		f, err := loadOptional(userPath)
+		if err != nil {
+			return nil, err
+		}
+		user = f
+	}
+	return &Store{merged: mergeFiles(composer, user)}, nil
+}
+
+// Lookup returns the credential registered for host (case-insensitive,
+// port-insensitive). When multiple kinds share a host, the priority is:
+//
+//	bearer > http-basic > github-oauth > gitlab-token > gitlab-oauth
+//
+// In practice users rarely register more than one kind per host. The order
+// favours the most specific/scoped header form first.
+func (s *Store) Lookup(host string) (Credentials, bool) {
+	if s == nil {
+		return Credentials{}, false
+	}
+	h := normHost(host)
+	if t, ok := s.merged.Bearer[h]; ok && t != "" {
+		return Credentials{Kind: KindBearer, Host: h, Token: t}, true
+	}
+	if b, ok := s.merged.HTTPBasic[h]; ok && (b.Username != "" || b.Password != "") {
+		return Credentials{Kind: KindHTTPBasic, Host: h, Username: b.Username, Password: b.Password}, true
+	}
+	if t, ok := s.merged.GitHubOAuth[h]; ok && t != "" {
+		return Credentials{Kind: KindGitHubOAuth, Host: h, Token: t}, true
+	}
+	if g, ok := s.merged.GitLabToken[h]; ok && g.Token != "" {
+		return Credentials{Kind: KindGitLabToken, Host: h, Username: g.Username, Token: g.Token}, true
+	}
+	if t, ok := s.merged.GitLabOAuth[h]; ok && t != "" {
+		return Credentials{Kind: KindGitLabOAuth, Host: h, Token: t}, true
+	}
+	return Credentials{}, false
+}
+
+// mergeFiles produces a new file where, for every map, user entries
+// override composer entries on host collision. Hosts present in only one
+// side are preserved as-is.
+func mergeFiles(composer, user *file) file {
+	out := file{
+		HTTPBasic:   map[string]basicCred{},
+		Bearer:      map[string]string{},
+		GitHubOAuth: map[string]string{},
+		GitLabToken: map[string]gitLabCred{},
+		GitLabOAuth: map[string]string{},
+	}
+	for h, v := range composer.HTTPBasic {
+		out.HTTPBasic[normHost(h)] = v
+	}
+	for h, v := range user.HTTPBasic {
+		out.HTTPBasic[normHost(h)] = v
+	}
+	for h, v := range composer.Bearer {
+		out.Bearer[normHost(h)] = v
+	}
+	for h, v := range user.Bearer {
+		out.Bearer[normHost(h)] = v
+	}
+	for h, v := range composer.GitHubOAuth {
+		out.GitHubOAuth[normHost(h)] = v
+	}
+	for h, v := range user.GitHubOAuth {
+		out.GitHubOAuth[normHost(h)] = v
+	}
+	for h, v := range composer.GitLabToken {
+		out.GitLabToken[normHost(h)] = v
+	}
+	for h, v := range user.GitLabToken {
+		out.GitLabToken[normHost(h)] = v
+	}
+	for h, v := range composer.GitLabOAuth {
+		out.GitLabOAuth[normHost(h)] = v
+	}
+	for h, v := range user.GitLabOAuth {
+		out.GitLabOAuth[normHost(h)] = v
+	}
+	return out
+}
