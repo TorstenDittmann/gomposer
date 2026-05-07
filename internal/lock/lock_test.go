@@ -54,3 +54,22 @@ func TestDecodeRejectsUnknownSchema(t *testing.T) {
 		t.Errorf("Decode should reject schemaVersion=99")
 	}
 }
+
+func TestLockFileRoundTripsWarnings(t *testing.T) {
+	in := &File{
+		SchemaVersion: SchemaVersion,
+		Generator:     Generator{Name: "composer-go", Version: "test"},
+		Warnings:      []string{"acme/x: php ^7.4 not satisfied (have php 8.2.14)"},
+	}
+	enc, err := in.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Decode(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Warnings) != 1 || out.Warnings[0] != in.Warnings[0] {
+		t.Errorf("warnings round-trip = %+v", out.Warnings)
+	}
+}

@@ -25,6 +25,16 @@ type File struct {
 	Packages            []Package `json:"packages"`
 	PackagesDev         []Package `json:"packagesDev,omitempty"`
 	Aliases             []Alias   `json:"aliases,omitempty"`
+	// Warnings, if non-empty, are human-readable strings the orchestrator
+	// should print to stderr after a cache hit. They mirror what would have
+	// been printed during a fresh resolution and exist so cache-hit runs
+	// produce identical UX.
+	//
+	// We store them in the lockfile (NOT only in the resolution-result
+	// cache) because the JSON lockfile is the canonical source of truth a
+	// user can inspect, and a future `composer-go check` should be able to
+	// re-print them without re-resolving.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type Generator struct {
