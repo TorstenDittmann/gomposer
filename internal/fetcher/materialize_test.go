@@ -36,7 +36,7 @@ func TestMaterializeStripsTopLevelDir(t *testing.T) {
 		Version: "1.0.0",
 		Dist:    registry.Dist{Type: "zip", URL: srv.URL + "/x.zip", Sha: sha},
 	}
-	if err := f.Fetch(context.Background(), pv); err != nil {
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func TestMaterializeWithoutWrapperDir(t *testing.T) {
 		Name: "vendor/flat", Version: "1.0.0",
 		Dist: registry.Dist{Type: "zip", URL: srv.URL + "/x.zip", Sha: sha},
 	}
-	if err := f.Fetch(context.Background(), pv); err != nil {
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "vendor", "vendor", "flat")
@@ -109,7 +109,7 @@ func TestMaterializeRejectsTraversal(t *testing.T) {
 		Name: "vendor/evil", Version: "1.0.0",
 		Dist: registry.Dist{Type: "zip", URL: srv.URL + "/x.zip", Sha: sha},
 	}
-	if err := f.Fetch(context.Background(), pv); err != nil {
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "vendor", "vendor", "evil")

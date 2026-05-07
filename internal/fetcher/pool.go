@@ -25,7 +25,10 @@ func (f *Fetcher) FetchAll(ctx context.Context, pvs []registry.PackageVersion, l
 	g.SetLimit(limit)
 	for _, pv := range pvs {
 		pv := pv
-		g.Go(func() error { return f.Fetch(ctx, pv) })
+		g.Go(func() error {
+			_, err := f.Fetch(ctx, pv)
+			return err
+		})
 	}
 	return g.Wait()
 }

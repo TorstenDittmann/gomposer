@@ -74,7 +74,7 @@ func TestFetchColdStoreThenWarmHit(t *testing.T) {
 	}
 
 	// Cold: should download.
-	if err := f.Fetch(context.Background(), pv); err != nil {
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
 		t.Fatalf("Fetch cold: %v", err)
 	}
 	if !st.Has(wantSha) {
@@ -85,7 +85,7 @@ func TestFetchColdStoreThenWarmHit(t *testing.T) {
 	}
 
 	// Warm: store hit, no network.
-	if err := f.Fetch(context.Background(), pv); err != nil {
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
 		t.Fatalf("Fetch warm: %v", err)
 	}
 	if hits != 1 {
@@ -123,7 +123,7 @@ func TestFetchRejectsShaMismatch(t *testing.T) {
 			Sha:  "0000000000000000000000000000000000000000000000000000000000000000",
 		},
 	}
-	err := f.Fetch(context.Background(), pv)
+	_, err := f.Fetch(context.Background(), pv)
 	if err == nil {
 		t.Fatal("expected sha mismatch error")
 	}
@@ -151,7 +151,7 @@ func TestFetchEmptyShaSkipsVerification(t *testing.T) {
 		Version: "1.0.0",
 		Dist:    registry.Dist{Type: "zip", URL: srv.URL + "/x.zip", Sha: ""},
 	}
-	if err := f.Fetch(context.Background(), pv); err != nil {
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	if !st.Has(wantSha) {

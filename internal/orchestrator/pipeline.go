@@ -183,6 +183,20 @@ func vendorPath(projectDir, packageName string) string {
 	return filepath.Join(projectDir, "vendor", filepath.FromSlash(packageName))
 }
 
+// backfillSha sets pkg.Dist.Sha256 from keys[pkg.Name] when the dist sha is
+// empty. Packagist v2 sometimes returns empty shasums for older entries; the
+// fetcher computes the real sha during streaming download and that becomes
+// the store key.
+func backfillSha(pkgs []lock.Package, keys map[string]string) {
+	for i := range pkgs {
+		if pkgs[i].Dist.Sha256 == "" {
+			if k, ok := keys[pkgs[i].Name]; ok {
+				pkgs[i].Dist.Sha256 = k
+			}
+		}
+	}
+}
+
 // materializeAll extracts each package from the store into vendor/.
 func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package, keys map[string]string, m Materializer, workers int) error {
 	if workers < 1 {
@@ -254,6 +268,11 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	if err != nil {
 		return err
 	}
+	// Back-fill Dist.Sha256 from the fetched keys so the lockfile records the
+	// actual content hash. Packagist sometimes ships empty shasums; we trust
+	// the streaming hash computed during download.
+	backfillSha(lockFile.Packages, keys)
+	backfillSha(lockFile.PackagesDev, keys)
 	if err := materializeAll(ctx, opts.ProjectDir, all, keys, opts.Materializer, workerCount(opts.Workers)); err != nil {
 		return err
 	}
@@ -281,16 +300,11 @@ func (a *fetcherAdapter) Fetch(ctx context.Context, pkg lock.Package) (string, e
 			Sha:  pkg.Dist.Sha256,
 		},
 	}
-	if err := a.f.Fetch(ctx, pv); err != nil {
+	sha, err := a.f.Fetch(ctx, pv)
+	if err != nil {
 		return "", err
 	}
-	// The store key is the sha256. If the package had one, use it; otherwise
-	// we cannot reliably return a key (this shouldn't happen in practice since
-	// every Packagist dist has a sha).
-	if pkg.Dist.Sha256 != "" {
-		return pkg.Dist.Sha256, nil
-	}
-	return "", fmt.Errorf("orchestrator: %s: dist has no sha256 after fetch", pkg.Name)
+	return sha, nil
 }
 
 // materializerAdapter wraps fetcher.Fetcher to implement the orchestrator Materializer
@@ -318,10 +332,9 @@ type autoloaderAdapter struct{}
 func (a *autoloaderAdapter) Generate(ctx context.Context, projectDir string, pkgs []lock.Package, m *manifest.Manifest) error {
 	entries := make([]autoloadpkg.Entry, 0, len(pkgs))
 	for _, p := range pkgs {
-		installPath := vendorPath(projectDir, p.Name)
-		// Convert lock.Package.Autoload (map[string]any) back to registry.Autoload shape.
-		// For stage 1 the resolver puts the autoload map directly in lock.Package.Autoload.
-		// We need to extract PSR4 from it.
+		// InstallPath must be relative to projectDir; the generator builds
+		// $baseDir-relative PHP expressions from it.
+		installPath := filepath.ToSlash(filepath.Join("vendor", filepath.FromSlash(p.Name)))
 		al := registryAutoloadFromMap(p.Autoload)
 		entries = append(entries, autoloadpkg.Entry{
 			Name:        p.Name,

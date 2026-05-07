@@ -99,17 +99,36 @@ type v2Response struct {
 }
 
 type v2Version struct {
-	Name              string            `json:"name"`
-	Version           string            `json:"version"`
-	VersionNormalized string            `json:"version_normalized"`
-	Type              string            `json:"type"`
-	Source            v2Source          `json:"source"`
-	Dist              v2Dist            `json:"dist"`
-	Require           map[string]string `json:"require"`
-	RequireDev        map[string]string `json:"require-dev"`
-	Autoload          v2Autoload        `json:"autoload"`
-	AutoloadDev       v2Autoload        `json:"autoload-dev"`
-	Suggest           map[string]string `json:"suggest"`
+	Name              string       `json:"name"`
+	Version           string       `json:"version"`
+	VersionNormalized string       `json:"version_normalized"`
+	Type              string       `json:"type"`
+	Source            v2Source     `json:"source"`
+	Dist              v2Dist       `json:"dist"`
+	Require           stringMap    `json:"require"`
+	RequireDev        stringMap    `json:"require-dev"`
+	Autoload          v2Autoload   `json:"autoload"`
+	AutoloadDev       v2Autoload   `json:"autoload-dev"`
+	Suggest           stringMap    `json:"suggest"`
+}
+
+// stringMap unmarshals either a JSON object of string→string or the
+// Packagist v2 sentinel "__unset" (and other non-object values, defensively)
+// as nil. Some published versions of long-lived packages ship `"require":
+// "__unset"` to indicate "no requirements."
+type stringMap map[string]string
+
+func (m *stringMap) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || data[0] != '{' {
+		*m = nil
+		return nil
+	}
+	tmp := map[string]string{}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	*m = tmp
+	return nil
 }
 
 type v2Source struct {
@@ -149,11 +168,11 @@ func decodeV2(name string, body []byte) (*registry.PackageMetadata, error) {
 			Type:        v.Type,
 			Source:      registry.Source{Type: v.Source.Type, URL: v.Source.URL, Ref: v.Source.Reference},
 			Dist:        registry.Dist{Type: v.Dist.Type, URL: v.Dist.URL, Sha: v.Dist.Shasum},
-			Require:     v.Require,
-			RequireDev:  v.RequireDev,
+			Require:     map[string]string(v.Require),
+			RequireDev:  map[string]string(v.RequireDev),
 			Autoload:    registry.Autoload(v.Autoload),
 			AutoloadDev: registry.Autoload(v.AutoloadDev),
-			Suggest:     v.Suggest,
+			Suggest:     map[string]string(v.Suggest),
 		})
 	}
 	return out, nil

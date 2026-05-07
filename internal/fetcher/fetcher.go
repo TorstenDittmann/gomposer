@@ -38,42 +38,43 @@ func New(s *store.Store, client *http.Client) *Fetcher {
 	return &Fetcher{store: s, http: client}
 }
 
-// Fetch ensures pv.Dist is present in the store. On a hit it returns nil
-// without touching the network. On a miss it downloads pv.Dist.URL,
-// streams the bytes through sha256 + a temp file, and renames into place
-// only after verifying pv.Dist.Sha (when non-empty). On sha mismatch the
-// temp file is removed and ErrShaMismatch is returned wrapped with the
-// package name.
-func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) error {
+// Fetch ensures pv.Dist is present in the store. It returns the sha256 of
+// the stored bytes (which is also the store key) on success. On a hit it
+// returns the known sha without touching the network. On a miss it
+// downloads pv.Dist.URL, streams the bytes through sha256 + a temp file,
+// and renames into place only after verifying pv.Dist.Sha (when non-empty).
+// On sha mismatch the temp file is removed and ErrShaMismatch is returned
+// wrapped with the package name.
+func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) (string, error) {
 	if pv.Dist.Type != "zip" {
-		return fmt.Errorf("fetcher: %s: unsupported dist type %q", pv.Name, pv.Dist.Type)
+		return "", fmt.Errorf("fetcher: %s: unsupported dist type %q", pv.Name, pv.Dist.Type)
 	}
 	if pv.Dist.URL == "" {
-		return fmt.Errorf("fetcher: %s: empty dist URL", pv.Name)
+		return "", fmt.Errorf("fetcher: %s: empty dist URL", pv.Name)
 	}
 
 	if pv.Dist.Sha != "" && f.store.Has(pv.Dist.Sha) {
-		return nil
+		return pv.Dist.Sha, nil
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pv.Dist.URL, nil)
 	if err != nil {
-		return fmt.Errorf("fetcher: %s: %w", pv.Name, err)
+		return "", fmt.Errorf("fetcher: %s: %w", pv.Name, err)
 	}
 	resp, err := f.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("fetcher: %s: get: %w", pv.Name, err)
+		return "", fmt.Errorf("fetcher: %s: get: %w", pv.Name, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("fetcher: %s: status %d", pv.Name, resp.StatusCode)
+		return "", fmt.Errorf("fetcher: %s: status %d", pv.Name, resp.StatusCode)
 	}
 
 	// Stream into a temp file inside the store dir (so the rename is
 	// guaranteed same-filesystem). Hash in parallel via TeeReader.
 	tmp, err := os.CreateTemp(filepath.Dir(f.store.Path("x")), "dl-*.zip")
 	if err != nil {
-		return fmt.Errorf("fetcher: %s: create tmp: %w", pv.Name, err)
+		return "", fmt.Errorf("fetcher: %s: create tmp: %w", pv.Name, err)
 	}
 	tmpPath := tmp.Name()
 	cleanup := func() {
@@ -85,21 +86,21 @@ func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) error {
 	tee := io.TeeReader(resp.Body, hasher)
 	if _, err := io.Copy(tmp, tee); err != nil {
 		cleanup()
-		return fmt.Errorf("fetcher: %s: copy: %w", pv.Name, err)
+		return "", fmt.Errorf("fetcher: %s: copy: %w", pv.Name, err)
 	}
 	if err := tmp.Sync(); err != nil {
 		cleanup()
-		return fmt.Errorf("fetcher: %s: fsync: %w", pv.Name, err)
+		return "", fmt.Errorf("fetcher: %s: fsync: %w", pv.Name, err)
 	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("fetcher: %s: close: %w", pv.Name, err)
+		return "", fmt.Errorf("fetcher: %s: close: %w", pv.Name, err)
 	}
 
 	gotSha := hex.EncodeToString(hasher.Sum(nil))
 	if pv.Dist.Sha != "" && pv.Dist.Sha != gotSha {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("fetcher: %s: %w (got %s, want %s)", pv.Name, ErrShaMismatch, gotSha, pv.Dist.Sha)
+		return "", fmt.Errorf("fetcher: %s: %w (got %s, want %s)", pv.Name, ErrShaMismatch, gotSha, pv.Dist.Sha)
 	}
 
 	finalSha := pv.Dist.Sha
@@ -114,11 +115,11 @@ func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) error {
 		// If rename failed because the destination already exists on a
 		// platform that disallows overwrite, treat as success.
 		if errors.Is(err, os.ErrExist) || f.store.Has(finalSha) {
-			return nil
+			return finalSha, nil
 		}
-		return fmt.Errorf("fetcher: %s: rename: %w", pv.Name, err)
+		return "", fmt.Errorf("fetcher: %s: rename: %w", pv.Name, err)
 	}
-	return nil
+	return finalSha, nil
 }
 
 // ErrShaMismatch is returned by Fetch when the downloaded bytes do not hash

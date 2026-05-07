@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
 // ToLockPackages converts a resolver Result into the slices the orchestrator
@@ -44,6 +45,30 @@ func toLockPackage(p ResolvedPackage) lock.Package {
 			URL:    p.Record.Dist.URL,
 			Sha256: p.Record.Dist.Sha,
 		},
-		Require: p.Record.Require,
+		Require:  p.Record.Require,
+		Autoload: autoloadToMap(p.Record.Autoload),
 	}
+}
+
+// autoloadToMap converts a registry.Autoload into the loose map[string]any
+// shape used by lock.Package, preserving only non-empty fields so the
+// lockfile diff stays tight.
+func autoloadToMap(a registry.Autoload) map[string]any {
+	out := map[string]any{}
+	if len(a.PSR4) > 0 {
+		out["psr-4"] = a.PSR4
+	}
+	if len(a.PSR0) > 0 {
+		out["psr-0"] = a.PSR0
+	}
+	if len(a.Files) > 0 {
+		out["files"] = a.Files
+	}
+	if len(a.Classmap) > 0 {
+		out["classmap"] = a.Classmap
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
