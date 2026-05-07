@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"os"
@@ -230,5 +231,42 @@ func Load() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadStore(composerPath, userPath)
+}
+
+// AuthorizationHeader returns the value to set as `Authorization` for HTTP
+// Bearer-style credentials. Empty string for kinds that use a different
+// header (gitlab-token uses Private-Token); see Apply for the full mapping.
+//
+// http-basic returns "Basic <base64(user:pass)>".
+func (c Credentials) AuthorizationHeader() string {
+	switch c.Kind {
+	case KindBearer, KindGitLabOAuth:
+		return "Bearer " + c.Token
+	case KindGitHubOAuth:
+		return "token " + c.Token
+	case KindHTTPBasic:
+		raw := c.Username + ":" + c.Password
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
+	}
+	return ""
+}
+
+// HTTPHeader returns (name, value, ok). Use this when AuthorizationHeader
+// is not enough (gitlab-token uses Private-Token).
+func (c Credentials) HTTPHeader() (string, string, bool) {
+	if c.Kind == KindGitLabToken && c.Token != "" {
+		return "Private-Token", c.Token, true
+	}
+	if v := c.AuthorizationHeader(); v != "" {
+		return "Authorization", v, true
+	}
+	return "", "", false
+}
+
+// LoadStoreForTest is exported so other packages' tests can build a Store
+// from explicit paths without going through Load(). It is not part of the
+// stable public API.
+func LoadStoreForTest(composerPath, userPath string) (*Store, error) {
 	return loadStore(composerPath, userPath)
 }

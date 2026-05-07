@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"github.com/torstendittmann/composer-go/internal/auth"
 	"github.com/torstendittmann/composer-go/internal/cache/httpcache"
 	"github.com/torstendittmann/composer-go/internal/cache/parsedcache"
 	"github.com/torstendittmann/composer-go/internal/registry"
@@ -21,6 +22,7 @@ type Config struct {
 	BaseURL    string       // override for testing; default is repo.packagist.org
 	CacheDir   string       // root cache dir; subdirs are created automatically
 	HTTPClient *http.Client // default: http.DefaultClient
+	Auth       *auth.Store  // optional; if nil, requests are unauthenticated
 }
 
 type Client struct {
@@ -41,6 +43,19 @@ func New(cfg Config) (*Client, error) {
 	hc, err := httpcache.New(httpDir, cfg.HTTPClient)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Auth != nil {
+		// Note: KindGitLabToken uses Private-Token, not Authorization. That
+		// header cannot be expressed through CredentialsFunc's single-string
+		// interface; such hosts use Apply() in richer per-request hooks. For
+		// stage-2, gitlab-token auth for HTTP API calls is deferred.
+		hc.Credentials = httpcache.CredentialsFunc(func(host string) (string, bool) {
+			c, ok := cfg.Auth.Lookup(host)
+			if !ok {
+				return "", false
+			}
+			return c.AuthorizationHeader(), true
+		})
 	}
 	pc, err := parsedcache.New[registry.PackageMetadata](parsedDir)
 	if err != nil {

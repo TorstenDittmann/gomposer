@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/torstendittmann/composer-go/internal/auth"
 	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
@@ -106,5 +108,42 @@ func TestLiveLookupMonolog(t *testing.T) {
 	}
 	if len(md.Versions) < 1 {
 		t.Errorf("expected at least one published version")
+	}
+}
+
+func TestPackagistAttachesAuth(t *testing.T) {
+	var sawAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(sampleResponse))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	authFile := filepath.Join(dir, "user.json")
+	body := `{"bearer":{"127.0.0.1":"TOK"}}`
+	if err := os.WriteFile(authFile, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := auth.LoadStoreForTest("", authFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := New(Config{
+		BaseURL:    srv.URL,
+		CacheDir:   t.TempDir(),
+		HTTPClient: srv.Client(),
+		Auth:       store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Lookup(context.Background(), "monolog/monolog"); err != nil {
+		t.Fatal(err)
+	}
+	if sawAuth != "Bearer TOK" {
+		t.Errorf("Authorization = %q, want Bearer TOK", sawAuth)
 	}
 }
