@@ -42,27 +42,58 @@ func (e *ConflictError) Error() string {
 	if e.Root == nil {
 		return "resolver: no solution exists"
 	}
-	return "resolver: conflict — " + renderDerivation(e.Root)
-}
-
-// renderDerivation walks the cause chain and produces an indented chain of
-// "because A and because B" lines. The output is intentionally simple in
-// stage 1; stage 3 polishes the rendering.
-func renderDerivation(ic *Incompatibility) string {
+	leaves := collectLeafCauses(e.Root)
+	if len(leaves) == 0 {
+		return "resolver: conflict (no leaf causes recorded)"
+	}
 	var b strings.Builder
-	render(&b, ic, 0)
-	return b.String()
+	b.WriteString("resolver: conflict — no compatible set of versions found:\n")
+	for _, l := range leaves {
+		fmt.Fprintf(&b, "  - %s\n", l)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
-func render(b *strings.Builder, ic *Incompatibility, depth int) {
-	for i := 0; i < depth; i++ {
-		b.WriteString("  ")
+// collectLeafCauses walks the conflict tree and returns deduplicated
+// human-readable descriptions of the underlying root causes (no-versions,
+// unknown-package, dependency clashes), which is what users actually need
+// to see — not the PubGrub derivation chain.
+func collectLeafCauses(ic *Incompatibility) []string {
+	seen := map[string]bool{}
+	var out []string
+	var walk func(*Incompatibility)
+	walk = func(ic *Incompatibility) {
+		if ic == nil {
+			return
+		}
+		switch c := ic.Cause.(type) {
+		case CauseConflict:
+			walk(c.Conflict)
+			walk(c.Other)
+		case CauseNoVersions:
+			msg := fmt.Sprintf("no published versions of %q satisfy the requested constraint", c.Package)
+			if !seen[msg] {
+				seen[msg] = true
+				out = append(out, msg)
+			}
+		case CauseUnknownPackage:
+			msg := fmt.Sprintf("package %q is not available from any configured registry (stage 1 only supports Packagist)", c.Package)
+			if !seen[msg] {
+				seen[msg] = true
+				out = append(out, msg)
+			}
+		case CauseDependency:
+			msg := fmt.Sprintf("dependency clash: %s requires %s but the chosen version cannot be reconciled", c.Depender, c.Dependee)
+			if !seen[msg] {
+				seen[msg] = true
+				out = append(out, msg)
+			}
+		case CauseRoot:
+			// CauseRoot alone is not informative; fall through.
+		}
 	}
-	fmt.Fprintf(b, "%s\n", ic.String())
-	if cc, ok := ic.Cause.(CauseConflict); ok {
-		render(b, cc.Conflict, depth+1)
-		render(b, cc.Other, depth+1)
-	}
+	walk(ic)
+	return out
 }
 
 // ErrNoVersionsForPackage is a sentinel returned when a package has no

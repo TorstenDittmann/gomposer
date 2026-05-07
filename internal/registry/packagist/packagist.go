@@ -137,10 +137,38 @@ type v2Source struct {
 	Reference string `json:"reference"`
 }
 
+func (s *v2Source) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || data[0] != '{' {
+		*s = v2Source{}
+		return nil
+	}
+	type raw v2Source
+	var tmp raw
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	*s = v2Source(tmp)
+	return nil
+}
+
 type v2Dist struct {
 	Type   string `json:"type"`
 	URL    string `json:"url"`
 	Shasum string `json:"shasum"`
+}
+
+func (d *v2Dist) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || data[0] != '{' {
+		*d = v2Dist{}
+		return nil
+	}
+	type raw v2Dist
+	var tmp raw
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	*d = v2Dist(tmp)
+	return nil
 }
 
 type v2Autoload struct {
@@ -148,6 +176,22 @@ type v2Autoload struct {
 	PSR0     map[string]any `json:"psr-0"`
 	Files    []string       `json:"files"`
 	Classmap []string       `json:"classmap"`
+}
+
+// UnmarshalJSON tolerates the "__unset" sentinel and any other non-object
+// value by treating it as an empty Autoload section.
+func (a *v2Autoload) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || data[0] != '{' {
+		*a = v2Autoload{}
+		return nil
+	}
+	type raw v2Autoload
+	var tmp raw
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	*a = v2Autoload(tmp)
+	return nil
 }
 
 func decodeV2(name string, body []byte) (*registry.PackageMetadata, error) {
