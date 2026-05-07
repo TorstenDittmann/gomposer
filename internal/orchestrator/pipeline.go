@@ -76,11 +76,21 @@ var resolveFunc = func(ctx context.Context, m *manifest.Manifest, src registry.S
 }
 
 // resolveOrCache returns a fully populated lock.File. It either:
+//   - returns the existing lockfile if present and forceResolve is false (install path),
 //   - returns the cached resolution if (manifest, lock, platform) matches,
 //   - or runs the resolver and caches the result.
 //
-// forceResolve=true skips the cache (Update path).
+// forceResolve=true skips the existing lock and the cache (Update path).
 func resolveOrCache(ctx context.Context, ps *pipelineState, forceResolve bool) (*lock.File, error) {
+	// If a lockfile exists and we're not forcing re-resolution, use it directly.
+	// This is the happy path for `install` when the lock is up to date.
+	if !forceResolve && len(ps.lockBytes) > 0 {
+		if existing, err := lock.Decode(ps.lockBytes); err == nil {
+			return existing, nil
+		}
+		// Corrupt lockfile: fall through to resolve.
+	}
+
 	if !forceResolve {
 		if cached, ok, err := loadResolution(ps.cacheKey); err == nil && ok {
 			return cached, nil
