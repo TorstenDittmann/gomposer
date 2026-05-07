@@ -11,10 +11,12 @@ import (
 // supported by composer-go are omitted; unknown fields in the input are
 // ignored silently for forward-compatibility with future Composer features.
 type Manifest struct {
-	Name       string            `json:"name"`
-	Type       string            `json:"type"`
-	Require    map[string]string `json:"require,omitempty"`
-	RequireDev map[string]string `json:"require-dev,omitempty"`
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	Require     map[string]string `json:"require,omitempty"`
+	RequireDev  map[string]string `json:"require-dev,omitempty"`
+	Autoload    Autoload          `json:"autoload,omitempty"`
+	AutoloadDev Autoload          `json:"autoload-dev,omitempty"`
 }
 
 // Parse decodes a composer.json byte slice. The error message includes the
