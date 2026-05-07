@@ -4,23 +4,37 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInit3b346b2bf25853783abd920b5c5bf21c
+class ComposerStaticInitcd4abb5c1a428281a6432bd0afc8d785
 {
+    public static $files = array(
+        '0504388a4555084b5673da0172ddce99' => $vendorDir . '/symfony/polyfill-mbstring/bootstrap.php',
+    );
+
     public static $prefixLengthsPsr4 = array(
         'A' => array('Acme\\Bar\\' => 9, 'Acme\\Foo\\' => 9, 'App\\' => 4),
+        'S' => array('Symfony\\Polyfill\\Mbstring\\' => 26),
     );
 
     public static $prefixDirsPsr4 = array(
         'Acme\\Bar\\' => array(__DIR__ . '/..' . '/acme/bar/src'),
         'Acme\\Foo\\' => array(__DIR__ . '/..' . '/acme/foo/src'),
         'App\\' => array(__DIR__ . '/../..' . '/src'),
+        'Symfony\\Polyfill\\Mbstring\\' => array(__DIR__ . '/..' . '/symfony/polyfill-mbstring'),
+    );
+
+    public static $classMap = array(
+        'Acme\\Legacy\\Loud' => $vendorDir . '/acme/legacy/src/Old.php',
+        'Acme\\Legacy\\Old' => $vendorDir . '/acme/legacy/src/Old.php',
+        'Acme\\Legacy\\Speaker' => $vendorDir . '/acme/legacy/src/Old.php',
+        'Acme\\Legacy\\Sub\\Color' => $vendorDir . '/acme/legacy/src/sub/Sub.php',
     );
 
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInit3b346b2bf25853783abd920b5c5bf21c::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInit3b346b2bf25853783abd920b5c5bf21c::$prefixDirsPsr4;
+            $loader->prefixLengthsPsr4 = ComposerStaticInitcd4abb5c1a428281a6432bd0afc8d785::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInitcd4abb5c1a428281a6432bd0afc8d785::$prefixDirsPsr4;
+            $loader->classMap = ComposerStaticInitcd4abb5c1a428281a6432bd0afc8d785::$classMap;
         }, null, ClassLoader::class);
     }
 }

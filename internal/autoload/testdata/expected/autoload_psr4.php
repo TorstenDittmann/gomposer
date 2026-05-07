@@ -9,4 +9,5 @@ return array(
     'Acme\\Bar\\' => array($vendorDir . '/acme/bar/src'),
     'Acme\\Foo\\' => array($vendorDir . '/acme/foo/src'),
     'App\\' => array($baseDir . '/src'),
+    'Symfony\\Polyfill\\Mbstring\\' => array($vendorDir . '/symfony/polyfill-mbstring'),
 );

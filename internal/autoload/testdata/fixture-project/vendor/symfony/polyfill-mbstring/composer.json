@@ -1,0 +1,8 @@
+{
+    "name": "symfony/polyfill-mbstring",
+    "type": "library",
+    "autoload": {
+        "psr-4": { "Symfony\\Polyfill\\Mbstring\\": "" },
+        "files": ["bootstrap.php"]
+    }
+}

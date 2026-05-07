@@ -6,4 +6,8 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
+    'Acme\\Legacy\\Loud' => $vendorDir . '/acme/legacy/src/Old.php',
+    'Acme\\Legacy\\Old' => $vendorDir . '/acme/legacy/src/Old.php',
+    'Acme\\Legacy\\Speaker' => $vendorDir . '/acme/legacy/src/Old.php',
+    'Acme\\Legacy\\Sub\\Color' => $vendorDir . '/acme/legacy/src/sub/Sub.php',
 );

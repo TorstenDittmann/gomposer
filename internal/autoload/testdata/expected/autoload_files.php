@@ -6,4 +6,5 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
+    '0504388a4555084b5673da0172ddce99' => $vendorDir . '/symfony/polyfill-mbstring/bootstrap.php',
 );

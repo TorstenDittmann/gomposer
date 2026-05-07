@@ -22,9 +22,7 @@ func fixtureEntries() []Entry {
 			Version:     "1.0.0",
 			InstallPath: "vendor/acme/foo",
 			Autoload: registry.Autoload{
-				PSR4: map[string]any{
-					"Acme\\Foo\\": "src/",
-				},
+				PSR4: map[string]any{"Acme\\Foo\\": "src/"},
 			},
 		},
 		{
@@ -32,9 +30,25 @@ func fixtureEntries() []Entry {
 			Version:     "1.0.0",
 			InstallPath: "vendor/acme/bar",
 			Autoload: registry.Autoload{
-				PSR4: map[string]any{
-					"Acme\\Bar\\": "src/",
-				},
+				PSR4: map[string]any{"Acme\\Bar\\": "src/"},
+			},
+		},
+		{
+			Name:        "acme/legacy",
+			Version:     "1.0.0",
+			InstallPath: "vendor/acme/legacy",
+			Autoload: registry.Autoload{
+				Classmap: []string{"src/"},
+			},
+			ExcludeFromClassmap: []string{"**/Tests/"},
+		},
+		{
+			Name:        "symfony/polyfill-mbstring",
+			Version:     "1.30.0",
+			InstallPath: "vendor/symfony/polyfill-mbstring",
+			Autoload: registry.Autoload{
+				PSR4:  map[string]any{"Symfony\\Polyfill\\Mbstring\\": ""},
+				Files: []string{"bootstrap.php"},
 			},
 		},
 	}
@@ -46,16 +60,89 @@ func fixtureRoot() manifest.Autoload {
 	}
 }
 
+func TestWriteExpected(t *testing.T) {
+	if os.Getenv("WRITE_EXPECTED") != "1" {
+		t.Skip("set WRITE_EXPECTED=1 to regenerate")
+	}
+	dir := filepath.Join("testdata", "fixture-project")
+	abs, _ := filepath.Abs(dir)
+	if err := Generate(Options{
+		ProjectDir:   abs,
+		Entries:      fixtureEntries(),
+		RootAutoload: fixtureRoot(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"autoload.php",
+		"autoload_real.php",
+		"autoload_psr4.php",
+		"autoload_namespaces.php",
+		"autoload_classmap.php",
+		"autoload_files.php",
+		"autoload_static.php",
+		"installed.php",
+	} {
+		var src string
+		if name == "autoload.php" {
+			src = filepath.Join(abs, "vendor", name)
+		} else {
+			src = filepath.Join(abs, "vendor", "composer", name)
+		}
+		body, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join("testdata", "expected", name)
+		if err := os.WriteFile(dest, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestSnapshot(t *testing.T) {
-	// Render in-memory using the fixed project dir for hash determinism.
-	psr4 := CollectPSR4(fixedProjectDir, fixtureRoot(), fixtureEntries())
+	// Copy fixture-project into a temp dir so Generate can write into it.
+	dir := t.TempDir()
+	src := filepath.Join("testdata", "fixture-project")
+	if err := copyDir(src, dir); err != nil {
+		t.Fatalf("copyDir: %v", err)
+	}
+
+	// Use a fixed project dir alias for hash determinism. We can't use
+	// fixedProjectDir directly because classmap scanning requires real files,
+	// so we generate into the temp dir but map the hash to a stable path.
+	// Instead, generate into the actual testdata dir equivalent by using
+	// the testdata/fixture-project abs path (same across runs on same machine).
+	fixtureAbs, _ := filepath.Abs(src)
+	opts := Options{
+		ProjectDir:   dir,
+		Entries:      fixtureEntries(),
+		RootAutoload: fixtureRoot(),
+	}
+	if err := Generate(opts); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	// Load expected files (generated with WRITE_EXPECTED=1 against fixtureAbs).
+	// The hash in expected files was generated against fixtureAbs, but our
+	// temp dir has a different hash. So we re-render using fixtureAbs as the
+	// project dir for the in-memory comparison only.
+	psr4 := CollectPSR4(fixtureAbs, fixtureRoot(), fixtureEntries())
 	sorted := SortedPrefixes(psr4)
+	classmap, err := CollectClassmap(fixtureAbs, fixtureRoot(), fixtureEntries())
+	if err != nil {
+		t.Fatalf("CollectClassmap: %v", err)
+	}
+	files := CollectFiles(fixtureRoot(), fixtureEntries())
 	out, err := renderAll(renderData{
-		InitClass:       InitClassName(fixedProjectDir),
-		Hash:            InitHash(fixedProjectDir),
+		InitClass:       InitClassName(fixtureAbs),
+		Hash:            InitHash(fixtureAbs),
 		PSR4:            psr4,
 		SortedPSR4:      sorted,
 		PSR4ByFirstChar: buildFirstCharGroups(sorted),
+		Files:           files,
+		Classmap:        classmap,
+		SortedClasses:   SortedClassmapKeys(classmap),
 	})
 	if err != nil {
 		t.Fatalf("renderAll: %v", err)
@@ -95,6 +182,9 @@ func TestSnapshot(t *testing.T) {
 
 func TestGenerateWritesFiles(t *testing.T) {
 	dir := t.TempDir()
+	if err := copyDir(filepath.Join("testdata", "fixture-project"), dir); err != nil {
+		t.Fatalf("copyDir: %v", err)
+	}
 	if err := Generate(Options{
 		ProjectDir:   dir,
 		Entries:      fixtureEntries(),
@@ -138,24 +228,47 @@ func TestGenerateIsIdempotent(t *testing.T) {
 		Entries:      fixtureEntries(),
 		RootAutoload: fixtureRoot(),
 	}
+	// Materialize fixture sources into dir so classmap walking finds them.
+	src := filepath.Join("testdata", "fixture-project")
+	if err := copyDir(src, dir); err != nil {
+		t.Fatalf("copyDir: %v", err)
+	}
+
 	if err := Generate(opts); err != nil {
 		t.Fatalf("first Generate: %v", err)
 	}
-	first, err := os.ReadFile(filepath.Join(dir, "vendor/composer/autoload_psr4.php"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	first := readGenerated(t, dir)
 
 	if err := Generate(opts); err != nil {
 		t.Fatalf("second Generate: %v", err)
 	}
-	second, err := os.ReadFile(filepath.Join(dir, "vendor/composer/autoload_psr4.php"))
-	if err != nil {
-		t.Fatal(err)
+	second := readGenerated(t, dir)
+
+	for path, a := range first {
+		if !bytes.Equal(a, second[path]) {
+			t.Errorf("%s changed across regenerations", path)
+		}
 	}
-	if !bytes.Equal(first, second) {
-		t.Errorf("autoload_psr4.php changed across regenerations")
+}
+
+func readGenerated(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	for _, p := range []string{
+		"vendor/autoload.php",
+		"vendor/composer/autoload_real.php",
+		"vendor/composer/autoload_psr4.php",
+		"vendor/composer/autoload_classmap.php",
+		"vendor/composer/autoload_files.php",
+		"vendor/composer/autoload_static.php",
+	} {
+		body, err := os.ReadFile(filepath.Join(dir, p))
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		out[p] = body
 	}
+	return out
 }
 
 func TestGenerateRejectsRelativeProjectDir(t *testing.T) {
