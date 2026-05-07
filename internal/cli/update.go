@@ -1,17 +1,38 @@
 package cli
 
 import (
-	"errors"
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"github.com/torstendittmann/composer-go/internal/orchestrator"
 )
 
 func newUpdateCmd() *cobra.Command {
-	return &cobra.Command{
+	var projectDir string
+	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Re-resolve dependencies and rewrite the lockfile",
+		Short: "Re-resolve all dependencies and rewrite composer-go.lock + vendor/",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return errors.New("update: not implemented yet")
+			if projectDir == "" {
+				wd, err := os.Getwd()
+				if err != nil {
+					return err
+				}
+				projectDir = wd
+			}
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			return orchestrator.Update(ctx, orchestrator.Options{
+				ProjectDir: projectDir,
+				NoDev:      flagNoDev,
+				Verbose:    flagVerbose,
+			})
 		},
 	}
+	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")
+	return cmd
 }

@@ -1,19 +1,21 @@
 package cli
 
 import (
-	"fmt"
+	"context"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/torstendittmann/composer-go/internal/manifest"
+
+	"github.com/torstendittmann/composer-go/internal/orchestrator"
 )
 
 func newInstallCmd() *cobra.Command {
 	var projectDir string
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Resolve dependencies from the lockfile and materialize vendor/",
+		Short: "Install dependencies into vendor/ from composer.json (using composer-go.lock if present)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectDir == "" {
 				wd, err := os.Getwd()
@@ -22,17 +24,13 @@ func newInstallCmd() *cobra.Command {
 				}
 				projectDir = wd
 			}
-			path := filepath.Join(projectDir, "composer.json")
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return fmt.Errorf("install: %w", err)
-			}
-			m, err := manifest.Parse(data)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "manifest %s with %d direct requires\n", m.Name, len(m.Require))
-			return nil
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			return orchestrator.Install(ctx, orchestrator.Options{
+				ProjectDir: projectDir,
+				NoDev:      flagNoDev,
+				Verbose:    flagVerbose,
+			})
 		},
 	}
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")
