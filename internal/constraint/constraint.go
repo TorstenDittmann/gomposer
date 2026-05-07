@@ -159,6 +159,45 @@ func nextCaretUpper(v Version) Version {
 	return Version{Major: 0, Minor: v.Minor + 1, Stability: Stable}
 }
 
+// IsExplicitDev reports whether the constraint is a single literal
+// "dev-<branch>" (optionally with a "#<ref>" pin). When true, the resolver
+// may admit the matching dev version even if minimum-stability is stricter.
+func (c Constraint) IsExplicitDev() bool {
+	s := strings.TrimSpace(c.Original)
+	if !strings.HasPrefix(s, "dev-") {
+		return false
+	}
+	// Reject anything that introduces a second alternative or a combinator.
+	for _, ch := range s {
+		switch ch {
+		case '|', ',', ' ':
+			return false
+		}
+	}
+	// Allow "dev-foo" or "dev-foo#sha". Branch must be non-empty.
+	body := strings.TrimPrefix(s, "dev-")
+	if body == "" {
+		return false
+	}
+	if i := strings.IndexByte(body, '#'); i >= 0 {
+		body = body[:i]
+	}
+	return body != ""
+}
+
+// ExplicitDevBranch returns the branch name when IsExplicitDev is true,
+// stripped of any "#sha" pin. Returns "" otherwise.
+func (c Constraint) ExplicitDevBranch() string {
+	if !c.IsExplicitDev() {
+		return ""
+	}
+	body := strings.TrimPrefix(strings.TrimSpace(c.Original), "dev-")
+	if i := strings.IndexByte(body, '#'); i >= 0 {
+		body = body[:i]
+	}
+	return body
+}
+
 // tildeTerms expands "~X.Y.Z" to ">=X.Y.Z, <X.(Y+1).0" and
 // "~X.Y" to ">=X.Y.0, <(X+1).0.0".
 func tildeTerms(s string) ([]term, error) {

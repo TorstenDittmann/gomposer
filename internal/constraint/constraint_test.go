@@ -93,3 +93,28 @@ func TestParseTilde(t *testing.T) {
 		}
 	}
 }
+
+func TestIsExplicitDev(t *testing.T) {
+	cases := map[string]bool{
+		"dev-main":         true,
+		"dev-master":       true,
+		"dev-feature/foo":  true,
+		"dev-main#abc1234": true,
+		"^1.0":             false,
+		"~2.3":             false,
+		">=1.0,<2.0":       false,
+		"":                 false,
+		"dev-main || ^1.0": false, // mixed: not a pure explicit-dev require
+	}
+	for in, want := range cases {
+		c, err := Parse(in)
+		if err != nil && in != "" {
+			// "" is genuinely invalid; skip
+			t.Logf("parse %q: %v", in, err)
+			continue
+		}
+		if got := c.IsExplicitDev(); got != want {
+			t.Errorf("IsExplicitDev(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
