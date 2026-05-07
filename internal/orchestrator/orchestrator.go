@@ -19,7 +19,14 @@ import (
 
 	"github.com/torstendittmann/composer-go/internal/manifest"
 	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/composer-go/internal/scripts"
 )
+
+// ScriptsRunner runs lifecycle scripts. The default implementation executes
+// subprocesses; tests inject a recording fake.
+type ScriptsRunner interface {
+	Run(ctx context.Context, event scripts.Event, opts scripts.Options) error
+}
 
 // Options configures a single Install or Update run.
 type Options struct {
@@ -28,6 +35,8 @@ type Options struct {
 	// NoDev mirrors --no-dev: skip require-dev and enforce platform
 	// requirements strictly.
 	NoDev bool
+	// NoScripts disables all lifecycle script firing (--no-scripts).
+	NoScripts bool
 	// Verbose enables phase-timing logs.
 	Verbose bool
 	// Workers caps the parallel-fetch worker count. Zero -> runtime.NumCPU().
@@ -53,6 +62,9 @@ type Options struct {
 	Fetcher      Fetcher
 	Materializer Materializer
 	Autoloader   Autoloader
+	// Scripts is the runner for lifecycle events. Tests inject a fake;
+	// production callers leave it nil and defaultDeps wires the real one.
+	Scripts ScriptsRunner
 }
 
 // Install runs the install pipeline: use the existing lockfile if present and

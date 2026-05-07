@@ -33,6 +33,7 @@ func newInstallCmd() *cobra.Command {
 			return orchestrator.Install(ctx, orchestrator.Options{
 				ProjectDir:         projectDir,
 				NoDev:              flagNoDev,
+				NoScripts:          flagNoScripts,
 				Verbose:            flagVerbose,
 				Quiet:              flagQuiet,
 				IgnorePlatformReqs: ignored,

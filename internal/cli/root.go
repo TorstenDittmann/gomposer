@@ -10,6 +10,7 @@ import (
 var (
 	flagVerbose            bool
 	flagNoDev              bool
+	flagNoScripts          bool
 	flagQuiet              bool
 	flagIgnorePlatform     bool
 	flagIgnorePlatformReqs []string
@@ -25,6 +26,7 @@ func newRootCmd() *cobra.Command {
 	}
 	root.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "verbose output with timing breakdown")
 	root.PersistentFlags().BoolVar(&flagNoDev, "no-dev", false, "skip require-dev dependencies; enforce platform requirements strictly")
+	root.PersistentFlags().BoolVar(&flagNoScripts, "no-scripts", false, "skip every user-defined script entry (CI / debugging)")
 	root.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "suppress non-error output")
 	root.PersistentFlags().BoolVar(&flagIgnorePlatform, "ignore-platform", false, "skip ALL platform requirement checks (php / ext-*)")
 	root.PersistentFlags().StringArrayVar(&flagIgnorePlatformReqs, "ignore-platform-req", nil,

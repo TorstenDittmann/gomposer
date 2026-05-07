@@ -33,6 +33,7 @@ func newUpdateCmd() *cobra.Command {
 			return orchestrator.Update(ctx, orchestrator.Options{
 				ProjectDir:         projectDir,
 				NoDev:              flagNoDev,
+				NoScripts:          flagNoScripts,
 				Verbose:            flagVerbose,
 				Quiet:              flagQuiet,
 				IgnorePlatformReqs: ignored,
