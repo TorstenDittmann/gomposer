@@ -231,12 +231,12 @@ func TestRunNoEventIsNoop(t *testing.T) {
 	}
 }
 
+// TestVerboseAnnouncesEvent is a regression guard: ensures the verbose path
+// in runShell does not panic or error when Verbose=true. Visual verification
+// (the "> <body>" prefix appearing on stderr) is covered in the plan's
+// stage-2 acceptance smoke test.
 func TestVerboseAnnouncesEvent(t *testing.T) {
 	skipIfNoSh(t)
-	// Capture stderr by redirecting via a pipe in a subprocess of `sh`. Easier
-	// path: assert the runner doesn't error when Verbose is set and the script
-	// runs; visual verification is documented in the plan acceptance check.
-	// We keep this test minimal because os.Stderr is process-global.
 	dir := t.TempDir()
 	r := New()
 	err := r.Run(context.Background(), EventPostInstall, Options{
