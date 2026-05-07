@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -180,4 +183,38 @@ func mergeFiles(composer, user *file) file {
 		out.GitLabOAuth[normHost(h)] = v
 	}
 	return out
+}
+
+func defaultPaths() (composerPath, userPath string, err error) {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return "", "", errors.New("auth: $HOME is unset")
+	}
+	composerPath = filepath.Join(home, ".composer", "auth.json")
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		userPath = filepath.Join(x, "composer-go", "auth.json")
+	} else {
+		userPath = filepath.Join(home, ".config", "composer-go", "auth.json")
+	}
+	return composerPath, userPath, nil
+}
+
+// Load returns a Store populated from the user's two known auth files.
+//
+// Precedence on host collision:
+//
+//	$XDG_CONFIG_HOME/composer-go/auth.json   (or ~/.config/composer-go/auth.json)
+//	      wins over
+//	~/.composer/auth.json
+//
+// Stage-2 deliberately does not read a project-local auth.json. Composer
+// supports `<projectDir>/auth.json` and we may add it later, but for now
+// the user-scoped files are the only sources. Adopters needing per-project
+// credentials should use an env-var-driven config or the user file.
+func Load() (*Store, error) {
+	composerPath, userPath, err := defaultPaths()
+	if err != nil {
+		return nil, err
+	}
+	return loadStore(composerPath, userPath)
 }
