@@ -70,6 +70,39 @@ func ParseVersion(s string) (Version, error) {
 	// Strip leading v.
 	body := strings.TrimPrefix(s, "v")
 
+	// Alias form: "1.x-dev", "1.2.x-dev", "1.x", "1.2.x" (Composer treats
+	// both with and without -dev as dev-stability aliases — we accept both).
+	if i := strings.Index(body, "x"); i >= 0 {
+		// Tolerate optional trailing "-dev" / ".x-dev".
+		head := strings.TrimRight(body[:i], ".")
+		// Must look like an integer-and-dots prefix.
+		ok := head != ""
+		for _, ch := range head {
+			if !(ch == '.' || (ch >= '0' && ch <= '9')) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			parts := strings.Split(head, ".")
+			nums := []int{0, 0, 0}
+			for j, p := range parts {
+				if j >= 3 {
+					break
+				}
+				n, err := strconv.Atoi(p)
+				if err != nil {
+					return v, fmt.Errorf("constraint: invalid alias version %q", s)
+				}
+				nums[j] = n
+			}
+			v.Major, v.Minor, v.Patch = nums[0], nums[1], nums[2]
+			v.Stability = Dev
+			v.Branch = s // keep the original form for diagnostics
+			return v, nil
+		}
+	}
+
 	// Split on first '-' or '+' to separate base from pre-release/build.
 	base, pre := body, ""
 	if i := strings.IndexAny(body, "-+"); i >= 0 {
@@ -143,16 +176,18 @@ func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 // Compare returns -1 if v < other, 0 if equal, +1 if v > other.
 // Dev versions sort below all numeric versions; among themselves they
 // compare alphabetically by branch (deterministic, not semantically
-// meaningful).
+// meaningful). Branch-alias dev versions (e.g. "1.x-dev") have non-zero
+// Major/Minor/Patch and compare numerically against each other but still
+// below stable versions with the same numbers.
 func (v Version) Compare(other Version) int {
-	// Dev vs dev: alphabetical by branch.
-	if v.Stability == Dev && other.Stability == Dev {
+	// Two "pure" dev versions (no major/minor/patch numbers): alphabetical.
+	if v.Stability == Dev && other.Stability == Dev && v.Major == 0 && other.Major == 0 {
 		return strings.Compare(v.Branch, other.Branch)
 	}
-	if v.Stability == Dev {
+	if v.Stability == Dev && v.Major == 0 {
 		return -1
 	}
-	if other.Stability == Dev {
+	if other.Stability == Dev && other.Major == 0 {
 		return 1
 	}
 	if c := cmpInt(v.Major, other.Major); c != 0 {

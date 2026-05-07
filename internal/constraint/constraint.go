@@ -24,22 +24,40 @@ type term struct {
 }
 
 func (t term) satisfies(v Version) bool {
-	c := v.Compare(t.v)
+	// For branch-alias versions (Dev stability but with numeric Major set),
+	// compare numerically against the term's version so that constraints like
+	// "^1.0" (expanded to ">=1.0 <2.0") match "1.x-dev" (Major=1).
+	cmp := v.Compare(t.v)
+	if v.Stability == Dev && v.Major != 0 {
+		cmp = compareNumeric(v, t.v)
+	}
 	switch t.op {
 	case OpEq:
-		return c == 0
+		return cmp == 0
 	case OpNe:
-		return c != 0
+		return cmp != 0
 	case OpLt:
-		return c < 0
+		return cmp < 0
 	case OpLe:
-		return c <= 0
+		return cmp <= 0
 	case OpGt:
-		return c > 0
+		return cmp > 0
 	case OpGe:
-		return c >= 0
+		return cmp >= 0
 	}
 	return false
+}
+
+// compareNumeric compares only the numeric Major.Minor.Patch portion,
+// ignoring stability. Used for branch-alias dev version constraint matching.
+func compareNumeric(a, b Version) int {
+	if c := cmpInt(a.Major, b.Major); c != 0 {
+		return c
+	}
+	if c := cmpInt(a.Minor, b.Minor); c != 0 {
+		return c
+	}
+	return cmpInt(a.Patch, b.Patch)
 }
 
 // Constraint is a conjunction of disjunctions: ANDs of ORs.

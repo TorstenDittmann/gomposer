@@ -94,6 +94,34 @@ func TestParseTilde(t *testing.T) {
 	}
 }
 
+func TestParseAliasVersion1xDev(t *testing.T) {
+	v, err := ParseVersion("1.x-dev")
+	if err != nil {
+		t.Fatalf("ParseVersion: %v", err)
+	}
+	if v.Major != 1 {
+		t.Errorf("Major = %d", v.Major)
+	}
+	if v.Stability != Dev {
+		t.Errorf("Stability = %v", v.Stability)
+	}
+}
+
+func TestCaretMatches1xDev(t *testing.T) {
+	c, err := Parse("^1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ := ParseVersion("1.x-dev")
+	if !c.Satisfies(v) {
+		t.Errorf("^1.0 should satisfy 1.x-dev")
+	}
+	v2, _ := ParseVersion("2.x-dev")
+	if c.Satisfies(v2) {
+		t.Errorf("^1.0 should NOT satisfy 2.x-dev")
+	}
+}
+
 func TestIsExplicitDev(t *testing.T) {
 	cases := map[string]bool{
 		"dev-main":         true,
