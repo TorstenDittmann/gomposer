@@ -107,6 +107,11 @@ func parseTerm(f string) ([]term, error) {
 	if len(f) == 0 {
 		return nil, fmt.Errorf("constraint: empty term")
 	}
+	// "*" is the universal constraint — every version satisfies it. We model
+	// this as an empty AND-clause (vacuously true).
+	if f == "*" {
+		return []term{}, nil
+	}
 	switch {
 	case strings.HasPrefix(f, "^"):
 		return caretTerms(f[1:])
