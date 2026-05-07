@@ -172,10 +172,11 @@ func (d *v2Dist) UnmarshalJSON(data []byte) error {
 }
 
 type v2Autoload struct {
-	PSR4     map[string]any `json:"psr-4"`
-	PSR0     map[string]any `json:"psr-0"`
-	Files    []string       `json:"files"`
-	Classmap []string       `json:"classmap"`
+	PSR4                map[string]any `json:"psr-4"`
+	PSR0                map[string]any `json:"psr-0"`
+	Files               []string       `json:"files"`
+	Classmap            []string       `json:"classmap"`
+	ExcludeFromClassmap []string       `json:"exclude-from-classmap"`
 }
 
 // UnmarshalJSON tolerates the "__unset" sentinel and any other non-object

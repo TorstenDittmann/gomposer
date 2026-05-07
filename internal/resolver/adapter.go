@@ -67,6 +67,9 @@ func autoloadToMap(a registry.Autoload) map[string]any {
 	if len(a.Classmap) > 0 {
 		out["classmap"] = a.Classmap
 	}
+	if len(a.ExcludeFromClassmap) > 0 {
+		out["exclude-from-classmap"] = a.ExcludeFromClassmap
+	}
 	if len(out) == 0 {
 		return nil
 	}

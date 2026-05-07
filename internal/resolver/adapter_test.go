@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/torstendittmann/composer-go/internal/registry"
@@ -46,5 +47,27 @@ func TestToLockPackages(t *testing.T) {
 	}
 	if len(dev) != 1 || dev[0].Name != "d/d" {
 		t.Errorf("dev = %+v", dev)
+	}
+}
+
+func TestAutoloadToMapIncludesAllFields(t *testing.T) {
+	al := registry.Autoload{
+		PSR4:                map[string]any{"Acme\\": "src/"},
+		Files:               []string{"bootstrap.php"},
+		Classmap:            []string{"legacy/"},
+		ExcludeFromClassmap: []string{"**/Tests/"},
+	}
+	m := autoloadToMap(al)
+	if m["psr-4"] == nil {
+		t.Errorf("psr-4 missing")
+	}
+	if !reflect.DeepEqual(m["files"], []string{"bootstrap.php"}) {
+		t.Errorf("files = %v", m["files"])
+	}
+	if !reflect.DeepEqual(m["classmap"], []string{"legacy/"}) {
+		t.Errorf("classmap = %v", m["classmap"])
+	}
+	if !reflect.DeepEqual(m["exclude-from-classmap"], []string{"**/Tests/"}) {
+		t.Errorf("exclude-from-classmap = %v", m["exclude-from-classmap"])
 	}
 }

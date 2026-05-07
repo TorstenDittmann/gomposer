@@ -44,10 +44,11 @@ type Dist struct {
 }
 
 type Autoload struct {
-	PSR4     map[string]any // values may be string or []string
-	PSR0     map[string]any
-	Files    []string
-	Classmap []string
+	PSR4                map[string]any // values may be string or []string
+	PSR0                map[string]any
+	Files               []string
+	Classmap            []string
+	ExcludeFromClassmap []string
 }
 
 // SourceLookup is the interface the resolver consumes. Implementations:
