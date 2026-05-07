@@ -19,14 +19,76 @@ type Manifest struct {
 	AutoloadDev      Autoload          `json:"autoload-dev,omitempty"`
 	MinimumStability string            `json:"minimum-stability,omitempty"`
 	PreferStable     bool              `json:"prefer-stable,omitempty"`
+	// Repositories holds user-defined repository entries, in declaration
+	// order. Only the JSON array form is accepted; the legacy map form is a
+	// hard error (CG203). Validation of individual entries (supported types,
+	// required fields) is performed by Repository.Validate, called by the
+	// orchestrator at startup so misconfigurations surface before any I/O.
+	Repositories []Repository `json:"-"`
+}
+
+// Repository is one entry from composer.json `repositories`. Fields beyond
+// Type/URL are kept on the wire as a raw map so future stages can read them
+// (Auth, Excludes, Only, etc.) without revising this struct.
+type Repository struct {
+	Type string         `json:"type"`
+	URL  string         `json:"url"`
+	Raw  map[string]any `json:"-"`
+}
+
+// rawManifest mirrors Manifest but with Repositories as json.RawMessage so we
+// can disambiguate array vs map at decode time.
+type rawManifest struct {
+	Manifest
+	Repositories json.RawMessage `json:"repositories,omitempty"`
 }
 
 // Parse decodes a composer.json byte slice. The error message includes the
 // offset on JSON syntax errors so callers can surface useful diagnostics.
 func Parse(data []byte) (*Manifest, error) {
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
+	var raw rawManifest
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("manifest: %w", err)
 	}
+	m := raw.Manifest
+	if len(raw.Repositories) > 0 {
+		repos, err := parseRepositories(raw.Repositories)
+		if err != nil {
+			return nil, err
+		}
+		m.Repositories = repos
+	}
 	return &m, nil
+}
+
+func parseRepositories(data []byte) ([]Repository, error) {
+	// trim leading whitespace
+	for i := 0; i < len(data); i++ {
+		switch data[i] {
+		case ' ', '\t', '\n', '\r':
+			continue
+		case '[':
+			return parseRepositoriesArray(data)
+		case '{':
+			return nil, fmt.Errorf("manifest: legacy map form of `repositories` is not supported; use the array form (composer-go CG203)")
+		case 'f': // false / disable-defaults convention
+			return nil, nil
+		}
+		break
+	}
+	return nil, fmt.Errorf("manifest: invalid `repositories` value")
+}
+
+func parseRepositoriesArray(data []byte) ([]Repository, error) {
+	var entries []map[string]any
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("manifest: repositories: %w", err)
+	}
+	out := make([]Repository, 0, len(entries))
+	for _, e := range entries {
+		typ, _ := e["type"].(string)
+		url, _ := e["url"].(string)
+		out = append(out, Repository{Type: typ, URL: url, Raw: e})
+	}
+	return out, nil
 }

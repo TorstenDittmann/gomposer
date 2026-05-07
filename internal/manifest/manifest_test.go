@@ -124,3 +124,42 @@ func TestParseAutoloadExcludeFromClassmap(t *testing.T) {
 		t.Errorf("got %v, want %v", m.Autoload.ExcludeFromClassmap, want)
 	}
 }
+
+func TestParseRepositoriesArray(t *testing.T) {
+	in := []byte(`{
+	  "name": "demo/app",
+	  "repositories": [
+	    {"type": "vcs", "url": "https://github.com/example/lib.git"},
+	    {"type": "vcs", "url": "git@github.com:example/other.git"}
+	  ],
+	  "require": {"example/lib": "^1.0"}
+	}`)
+	m, err := Parse(in)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(m.Repositories) != 2 {
+		t.Fatalf("Repositories len=%d, want 2", len(m.Repositories))
+	}
+	if m.Repositories[0].Type != "vcs" || m.Repositories[0].URL != "https://github.com/example/lib.git" {
+		t.Errorf("Repositories[0] = %+v", m.Repositories[0])
+	}
+}
+
+func TestParseRepositoriesMissing(t *testing.T) {
+	m, err := Parse([]byte(`{"name": "demo/app"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Repositories != nil {
+		t.Errorf("Repositories = %+v, want nil", m.Repositories)
+	}
+}
+
+func TestParseRepositoriesLegacyMapErrors(t *testing.T) {
+	in := []byte(`{"repositories": {"foo": {"type": "vcs", "url": "x"}}}`)
+	_, err := Parse(in)
+	if err == nil {
+		t.Fatal("expected error for legacy map form")
+	}
+}
