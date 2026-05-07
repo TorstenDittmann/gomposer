@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -88,5 +89,22 @@ func TestLookupNotFound(t *testing.T) {
 	_, err := c.Lookup(context.Background(), "no/such")
 	if !errors.Is(err, registry.ErrPackageNotFound) {
 		t.Errorf("err = %v, want ErrPackageNotFound", err)
+	}
+}
+
+func TestLiveLookupMonolog(t *testing.T) {
+	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
+		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run")
+	}
+	c, err := New(Config{CacheDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, err := c.Lookup(context.Background(), "monolog/monolog")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if len(md.Versions) < 1 {
+		t.Errorf("expected at least one published version")
 	}
 }
