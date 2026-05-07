@@ -105,8 +105,8 @@ Four caching layers and two optimistic operations are baked in. Layers 1, 2, and
 
 **Components.**
 
-- `files` autoloader output.
-- `classmap` autoloader: token-stream PHP scanner (not regex) over declared paths, emit static map.
+- `files` autoloader output. **Status:** implemented (Stage 2 / Plan 1).
+- `classmap` autoloader: token-stream PHP scanner (not regex) over declared paths, emit static map. **Status:** implemented (Stage 2 / Plan 1).
 - Platform req detection: one-shot `php -r` at startup, capture version + loaded extensions.
 - Platform constraint enforcement in resolver — warnings by default; hard error when `--no-dev` is set.
 - VCS (git) repository support: clone, enumerate tags/branches, build per-version metadata from each ref's `composer.json`, cache aggressively.
