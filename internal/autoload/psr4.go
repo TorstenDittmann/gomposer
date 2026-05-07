@@ -1,0 +1,111 @@
+package autoload
+
+import (
+	"path"
+	"sort"
+	"strings"
+
+	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/composer-go/internal/registry"
+)
+
+// Entry is one resolved package as the orchestrator hands it to the
+// autoloader generator. InstallPath is relative to the project root and
+// uses forward slashes regardless of host OS (we never embed host-OS path
+// separators in generated PHP).
+type Entry struct {
+	Name        string
+	Version     string
+	InstallPath string // e.g. "vendor/acme/foo"
+	Autoload    registry.Autoload
+}
+
+// CollectPSR4 merges PSR-4 prefixes from the root manifest's autoload
+// section and every vendor entry. Returned values:
+//   - keys are PSR-4 namespace prefixes (e.g. "Acme\\Foo\\")
+//   - values are project-relative directory paths with a trailing slash
+//
+// Order within each value slice preserves first-seen order: root entries
+// before vendor entries, vendor entries in the supplied order. Composer
+// does the same so that root paths win for class lookup ties.
+//
+// projectDir is currently unused (paths are project-relative) but is kept
+// in the signature for symmetry with future absolute-path generators.
+func CollectPSR4(projectDir string, root manifest.Autoload, entries []Entry) map[string][]string {
+	out := map[string][]string{}
+
+	// Root manifest first.
+	for prefix, dir := range root.PSR4 {
+		out[prefix] = appendUnique(out[prefix], normalizeDir(dir))
+	}
+
+	// Vendor entries in supplied order.
+	for _, e := range entries {
+		for prefix, raw := range e.Autoload.PSR4 {
+			for _, dir := range toStringSlice(raw) {
+				rel := joinSlash(e.InstallPath, dir)
+				out[prefix] = appendUnique(out[prefix], normalizeDir(rel))
+			}
+		}
+	}
+	return out
+}
+
+// SortedPrefixes returns the keys of m sorted lexicographically.
+// Used everywhere we serialize PSR-4 maps so output is byte-stable.
+func SortedPrefixes(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// toStringSlice normalizes the polymorphic JSON value (string OR []string)
+// that Composer accepts in psr-4 entries.
+func toStringSlice(v any) []string {
+	switch t := v.(type) {
+	case string:
+		return []string{t}
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, x := range t {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		return t
+	}
+	return nil
+}
+
+// normalizeDir ensures the directory ends with exactly one "/".
+// Empty string is preserved as empty (means "package install root").
+func normalizeDir(d string) string {
+	if d == "" {
+		return ""
+	}
+	d = strings.TrimRight(d, "/")
+	return d + "/"
+}
+
+// joinSlash joins forward-slash paths without ever introducing a host
+// path separator.
+func joinSlash(a, b string) string {
+	if b == "" {
+		return strings.TrimRight(a, "/") + "/"
+	}
+	return path.Join(a, b)
+}
+
+func appendUnique(s []string, x string) []string {
+	for _, e := range s {
+		if e == x {
+			return s
+		}
+	}
+	return append(s, x)
+}
