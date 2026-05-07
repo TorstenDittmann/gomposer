@@ -28,3 +28,27 @@ func TestInstallReadsManifest(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 }
+
+func TestCacheKeyChangesWithManifest(t *testing.T) {
+	a := computeCacheKey([]byte(`{"name":"a"}`), nil, "php-unknown")
+	b := computeCacheKey([]byte(`{"name":"b"}`), nil, "php-unknown")
+	if a == b {
+		t.Errorf("expected different keys for different manifests, got %q", a)
+	}
+}
+
+func TestCacheKeyStableForSameInputs(t *testing.T) {
+	a := computeCacheKey([]byte(`{"name":"a"}`), []byte("lock"), "php-unknown")
+	b := computeCacheKey([]byte(`{"name":"a"}`), []byte("lock"), "php-unknown")
+	if a != b {
+		t.Errorf("expected stable key, got %q vs %q", a, b)
+	}
+}
+
+func TestCacheKeyChangesWithPlatform(t *testing.T) {
+	a := computeCacheKey([]byte(`m`), nil, "php-unknown")
+	b := computeCacheKey([]byte(`m`), nil, "php-8.2.0;ext-json")
+	if a == b {
+		t.Errorf("expected different keys for different platforms")
+	}
+}
