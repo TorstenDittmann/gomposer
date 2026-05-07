@@ -85,8 +85,8 @@ Four caching layers and two optimistic operations are baked in. Layers 1, 2, and
 
 **Components.**
 
-- CLI scaffold: `install`, `update`, `--no-dev`, `--verbose`, `--lock` (force lock rebuild).
-- `composer.json` parser (subset: `name`, `type`, `require`, `require-dev`, `autoload`, `autoload-dev`, `minimum-stability`, `prefer-stable`, `repositories` of type `composer`).
+- CLI scaffold: `install`, `update`, `--no-dev`, `--verbose`.
+- `composer.json` parser (subset: `name`, `type`, `require`, `require-dev`, `autoload`, `autoload-dev`, `minimum-stability`, `prefer-stable`). The default Packagist repository is the only metadata source in stage 1; user-defined `repositories` entries are deferred to stage 2 (VCS) and beyond. Non-default `composer`-type repository entries error out with a clear message.
 - Version-constraint parser: `^`, `~`, ranges, `|`, `dev-*`, branch aliases (`dev-main as 1.x-dev`), stability flags.
 - Packagist v2 metadata client with disk-backed HTTP cache (ETag + Last-Modified). **Cache layer 1.**
 - Parsed-manifest cache. **Cache layer 4.**
