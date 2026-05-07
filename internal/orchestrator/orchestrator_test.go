@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -319,5 +320,27 @@ func TestInstallUsesResolutionCacheOnSecondRun(t *testing.T) {
 	}
 	if hits != 1 {
 		t.Errorf("resolver invoked %d times across two Install calls; want 1 (second should hit cache)", hits)
+	}
+}
+
+func TestRegistryAutoloadFromMapExtractsFilesClassmap(t *testing.T) {
+	in := map[string]any{
+		"psr-4":                 map[string]any{"Acme\\": "src/"},
+		"files":                 []any{"bootstrap.php", "helpers.php"},
+		"classmap":              []any{"legacy/"},
+		"exclude-from-classmap": []any{"**/Tests/"},
+	}
+	al, excl := autoloadFromLockMap(in)
+	if al.PSR4["Acme\\"] == nil {
+		t.Errorf("psr-4 lost")
+	}
+	if !reflect.DeepEqual(al.Files, []string{"bootstrap.php", "helpers.php"}) {
+		t.Errorf("files = %v", al.Files)
+	}
+	if !reflect.DeepEqual(al.Classmap, []string{"legacy/"}) {
+		t.Errorf("classmap = %v", al.Classmap)
+	}
+	if !reflect.DeepEqual(excl, []string{"**/Tests/"}) {
+		t.Errorf("exclude = %v", excl)
 	}
 }

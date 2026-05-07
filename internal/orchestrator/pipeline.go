@@ -335,12 +335,13 @@ func (a *autoloaderAdapter) Generate(ctx context.Context, projectDir string, pkg
 		// InstallPath must be relative to projectDir; the generator builds
 		// $baseDir-relative PHP expressions from it.
 		installPath := filepath.ToSlash(filepath.Join("vendor", filepath.FromSlash(p.Name)))
-		al := registryAutoloadFromMap(p.Autoload)
+		al, excl := autoloadFromLockMap(p.Autoload)
 		entries = append(entries, autoloadpkg.Entry{
-			Name:        p.Name,
-			Version:     p.Version,
-			InstallPath: installPath,
-			Autoload:    al,
+			Name:                p.Name,
+			Version:             p.Version,
+			InstallPath:         installPath,
+			Autoload:            al,
+			ExcludeFromClassmap: excl,
 		})
 	}
 	return autoloadpkg.Generate(autoloadpkg.Options{
@@ -350,24 +351,54 @@ func (a *autoloaderAdapter) Generate(ctx context.Context, projectDir string, pkg
 	})
 }
 
-// registryAutoloadFromMap converts the lock package's Autoload map (map[string]any)
-// into a registry.Autoload struct. Stage 1 stores PSR4 as a nested map.
-func registryAutoloadFromMap(raw map[string]any) registry.Autoload {
+// autoloadFromLockMap converts the lock package's Autoload map (a
+// JSON-decoded map[string]any) into a registry.Autoload struct and the
+// per-package exclude-from-classmap glob list. The split return is so the
+// orchestrator can attach exclude patterns to autoload.Entry, where they
+// live (registry.Autoload itself is shared with the resolver, which has
+// no business with autoloader exclusion rules).
+func autoloadFromLockMap(raw map[string]any) (registry.Autoload, []string) {
 	var al registry.Autoload
 	if raw == nil {
-		return al
+		return al, nil
 	}
-	if psr4, ok := raw["psr-4"]; ok {
-		if m, ok := psr4.(map[string]any); ok {
+	if v, ok := raw["psr-4"]; ok {
+		if m, ok := v.(map[string]any); ok {
 			al.PSR4 = m
 		}
 	}
-	if psr0, ok := raw["psr-0"]; ok {
-		if m, ok := psr0.(map[string]any); ok {
+	if v, ok := raw["psr-0"]; ok {
+		if m, ok := v.(map[string]any); ok {
 			al.PSR0 = m
 		}
 	}
-	return al
+	if v, ok := raw["files"]; ok {
+		al.Files = anySliceToStrings(v)
+	}
+	if v, ok := raw["classmap"]; ok {
+		al.Classmap = anySliceToStrings(v)
+	}
+	var excl []string
+	if v, ok := raw["exclude-from-classmap"]; ok {
+		excl = anySliceToStrings(v)
+	}
+	return al, excl
+}
+
+func anySliceToStrings(v any) []string {
+	switch t := v.(type) {
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, x := range t {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		return t
+	}
+	return nil
 }
 
 // defaultDeps wires up the production Fetcher, Materializer, Autoloader, and
