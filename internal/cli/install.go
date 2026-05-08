@@ -12,7 +12,10 @@ import (
 )
 
 func newInstallCmd() *cobra.Command {
-	var projectDir string
+	var (
+		projectDir   string
+		allowPlugins []string // accepted for Composer-CLI compatibility; no-op (composer-go does not run plugins)
+	)
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install dependencies into vendor/ from composer.json (using composer-go.lock if present)",
@@ -30,6 +33,7 @@ func newInstallCmd() *cobra.Command {
 			if flagIgnorePlatform {
 				ignored = append(ignored, "*")
 			}
+			_ = allowPlugins // explicitly unused
 			return orchestrator.Install(ctx, orchestrator.Options{
 				ProjectDir:         projectDir,
 				NoDev:              flagNoDev,
@@ -41,5 +45,9 @@ func newInstallCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")
+	cmd.Flags().StringSliceVar(&allowPlugins, "allow-plugins", nil,
+		"accepted for Composer compatibility; no-op (composer-go does not run plugins, so this flag has no effect)")
+	// Allow bare `--allow-plugins` with no value (Composer accepts that form).
+	cmd.Flags().Lookup("allow-plugins").NoOptDefVal = "*"
 	return cmd
 }
