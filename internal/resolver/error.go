@@ -2,7 +2,6 @@ package resolver
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/torstendittmann/composer-go/internal/constraint"
 	"github.com/torstendittmann/composer-go/internal/registry"
@@ -39,24 +38,7 @@ type ConflictError struct {
 }
 
 func (e *ConflictError) Error() string {
-	if e.Root == nil {
-		return "resolver: no solution exists"
-	}
-	leaves := collectLeafCauses(e.Root)
-	var b strings.Builder
-	b.WriteString("resolver: conflict — no compatible set of versions found:\n")
-	if len(leaves) > 0 {
-		for _, l := range leaves {
-			fmt.Fprintf(&b, "  - %s\n", l)
-		}
-	} else {
-		// Fallback: dump the derivation tree so users see SOMETHING actionable
-		// even when the cause chain bottoms out at CauseRoot only. This is
-		// rare in practice but happens when a transitive dependency clash
-		// resolves entirely against root requires.
-		renderDerivation(&b, e.Root, 1)
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return RenderConflict(e.Root)
 }
 
 // collectLeafCauses walks the conflict tree and returns deduplicated
@@ -88,11 +70,10 @@ func collectLeafCauses(ic *Incompatibility) []string {
 		case CauseDependency:
 			add(fmt.Sprintf("dependency clash: %s requires %s but the chosen version cannot be reconciled", c.Depender, c.Dependee))
 		case CauseRoot:
-			// Surface the package(s) the root incompatibility names so the
-			// user sees what their manifest is asking for.
-			for _, t := range ic.Terms {
-				add(fmt.Sprintf("your manifest requires %s %s and no compatible version was found", t.Package, termConstraintLabel(t)))
-			}
+			// CauseRoot nodes are structural connector nodes in the conflict
+			// tree. The derivation section already explains what the manifest
+			// requires in context; emitting redundant bullets here adds noise
+			// rather than clarity. Skip.
 		}
 	}
 	walk(ic)
@@ -110,23 +91,6 @@ func termConstraintLabel(t Term) string {
 		return "(not " + s + ")"
 	}
 	return s
-}
-
-// renderDerivation walks the tree and writes an indented dump of every
-// incompatibility, used as a last-resort fallback when no leaf causes were
-// collected.
-func renderDerivation(b *strings.Builder, ic *Incompatibility, depth int) {
-	if ic == nil {
-		return
-	}
-	for i := 0; i < depth; i++ {
-		b.WriteString("  ")
-	}
-	fmt.Fprintf(b, "%s\n", ic.String())
-	if cc, ok := ic.Cause.(CauseConflict); ok {
-		renderDerivation(b, cc.Conflict, depth+1)
-		renderDerivation(b, cc.Other, depth+1)
-	}
 }
 
 // ErrNoVersionsForPackage is a sentinel returned when a package has no
