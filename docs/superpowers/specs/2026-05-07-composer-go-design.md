@@ -127,7 +127,9 @@ Four caching layers and two optimistic operations are baked in. Layers 1, 2, and
 - Concurrency tuning per phase, driven by benchmark data.
 - Resolver-conflict error rendering: PubGrub derivation chain rendered package-by-package.
 - `--verbose` timing breakdown per phase.
-- Optional terminal progress UI (single-line or simple multi-line; no fullscreen TUI).
+- Optional terminal progress UI: single-line redraw on stderr when stderr
+  is a TTY, plain log lines otherwise. Suppressed under --quiet. See
+  `docs/superpowers/plans/2026-05-09-stage3-plan6-progress.md`.
 
 **Acceptance.** Published benchmark numbers on Laravel skeleton, Symfony skeleton, a Drupal install, and at least one larger real project. Targets: warm-cache and lock-unchanged installs ≥5x faster than Composer; cold installs ≥2x faster.
 
