@@ -43,24 +43,35 @@ func (e *ConflictError) Error() string {
 		return "resolver: no solution exists"
 	}
 	leaves := collectLeafCauses(e.Root)
-	if len(leaves) == 0 {
-		return "resolver: conflict (no leaf causes recorded)"
-	}
 	var b strings.Builder
 	b.WriteString("resolver: conflict — no compatible set of versions found:\n")
-	for _, l := range leaves {
-		fmt.Fprintf(&b, "  - %s\n", l)
+	if len(leaves) > 0 {
+		for _, l := range leaves {
+			fmt.Fprintf(&b, "  - %s\n", l)
+		}
+	} else {
+		// Fallback: dump the derivation tree so users see SOMETHING actionable
+		// even when the cause chain bottoms out at CauseRoot only. This is
+		// rare in practice but happens when a transitive dependency clash
+		// resolves entirely against root requires.
+		renderDerivation(&b, e.Root, 1)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
 // collectLeafCauses walks the conflict tree and returns deduplicated
 // human-readable descriptions of the underlying root causes (no-versions,
-// unknown-package, dependency clashes), which is what users actually need
-// to see — not the PubGrub derivation chain.
+// unknown-package, dependency clashes, root requires), which is what users
+// actually need to see — not the PubGrub derivation chain.
 func collectLeafCauses(ic *Incompatibility) []string {
 	seen := map[string]bool{}
 	var out []string
+	add := func(msg string) {
+		if !seen[msg] {
+			seen[msg] = true
+			out = append(out, msg)
+		}
+	}
 	var walk func(*Incompatibility)
 	walk = func(ic *Incompatibility) {
 		if ic == nil {
@@ -71,29 +82,51 @@ func collectLeafCauses(ic *Incompatibility) []string {
 			walk(c.Conflict)
 			walk(c.Other)
 		case CauseNoVersions:
-			msg := fmt.Sprintf("no published versions of %q satisfy the requested constraint", c.Package)
-			if !seen[msg] {
-				seen[msg] = true
-				out = append(out, msg)
-			}
+			add(fmt.Sprintf("no published versions of %q satisfy the requested constraint", c.Package))
 		case CauseUnknownPackage:
-			msg := fmt.Sprintf("package %q is not available from any configured registry (stage 1 only supports Packagist)", c.Package)
-			if !seen[msg] {
-				seen[msg] = true
-				out = append(out, msg)
-			}
+			add(fmt.Sprintf("package %q is not available from any configured registry", c.Package))
 		case CauseDependency:
-			msg := fmt.Sprintf("dependency clash: %s requires %s but the chosen version cannot be reconciled", c.Depender, c.Dependee)
-			if !seen[msg] {
-				seen[msg] = true
-				out = append(out, msg)
-			}
+			add(fmt.Sprintf("dependency clash: %s requires %s but the chosen version cannot be reconciled", c.Depender, c.Dependee))
 		case CauseRoot:
-			// CauseRoot alone is not informative; fall through.
+			// Surface the package(s) the root incompatibility names so the
+			// user sees what their manifest is asking for.
+			for _, t := range ic.Terms {
+				add(fmt.Sprintf("your manifest requires %s %s and no compatible version was found", t.Package, termConstraintLabel(t)))
+			}
 		}
 	}
 	walk(ic)
 	return out
+}
+
+// termConstraintLabel renders a Term's constraint for human-readable error
+// messages. Falls back to "*" when the constraint string is empty.
+func termConstraintLabel(t Term) string {
+	s := t.Constraint.Original
+	if s == "" {
+		s = "*"
+	}
+	if !t.Positive {
+		return "(not " + s + ")"
+	}
+	return s
+}
+
+// renderDerivation walks the tree and writes an indented dump of every
+// incompatibility, used as a last-resort fallback when no leaf causes were
+// collected.
+func renderDerivation(b *strings.Builder, ic *Incompatibility, depth int) {
+	if ic == nil {
+		return
+	}
+	for i := 0; i < depth; i++ {
+		b.WriteString("  ")
+	}
+	fmt.Fprintf(b, "%s\n", ic.String())
+	if cc, ok := ic.Cause.(CauseConflict); ok {
+		renderDerivation(b, cc.Conflict, depth+1)
+		renderDerivation(b, cc.Other, depth+1)
+	}
 }
 
 // ErrNoVersionsForPackage is a sentinel returned when a package has no
