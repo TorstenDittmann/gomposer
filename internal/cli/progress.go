@@ -86,21 +86,122 @@ func (p *noopProgress) IncExtract(string) {}
 func (p *noopProgress) EndExtract()      {}
 func (p *noopProgress) Done(int)         {}
 
-// ttyProgress is filled in by Task 2.
-type ttyProgress struct{}
+const (
+	redrawInterval = 50 * time.Millisecond
+	barWidth       = 10
+)
 
-func newTTYProgress(io.Writer) *ttyProgress { return &ttyProgress{} }
+// ttyProgress redraws a single line on stderr, throttled to at most one draw
+// per redrawInterval. State is shared between fetch and extract phases (only
+// one phase runs at a time in the orchestrator).
+type ttyProgress struct {
+	w io.Writer
 
-func (p *ttyProgress) BeginFetch(int)    {}
-func (p *ttyProgress) IncFetch(string)   {}
-func (p *ttyProgress) EndFetch()         {}
-func (p *ttyProgress) BeginExtract(int)  {}
-func (p *ttyProgress) IncExtract(string) {}
-func (p *ttyProgress) EndExtract()       {}
-func (p *ttyProgress) Done(int)          {}
+	mu       sync.Mutex
+	phase    string // "fetching", "extracting", or ""
+	total    int
+	current  atomic.Int64
+	label    string
+	lastDraw time.Time
 
-// Reserve symbols used by Task 2 so the package builds clean.
-var _ = atomic.Int64{}
-var _ = sync.Mutex{}
-var _ = time.Now
-var _ = fmt.Sprintf
+	startTime time.Time
+}
+
+func newTTYProgress(w io.Writer) *ttyProgress {
+	return &ttyProgress{w: w, startTime: time.Now()}
+}
+
+func (p *ttyProgress) BeginFetch(total int)   { p.beginPhase("fetching", total) }
+func (p *ttyProgress) BeginExtract(total int) { p.beginPhase("extracting", total) }
+
+func (p *ttyProgress) beginPhase(name string, total int) {
+	p.mu.Lock()
+	p.phase = name
+	p.total = total
+	p.label = ""
+	p.current.Store(0)
+	p.lastDraw = time.Time{} // force the first redraw
+	p.mu.Unlock()
+	p.maybeDraw(true)
+}
+
+func (p *ttyProgress) IncFetch(name string)   { p.inc(name) }
+func (p *ttyProgress) IncExtract(name string) { p.inc(name) }
+
+func (p *ttyProgress) inc(name string) {
+	p.current.Add(1)
+	p.mu.Lock()
+	p.label = name
+	p.mu.Unlock()
+	p.maybeDraw(false)
+}
+
+func (p *ttyProgress) EndFetch()   { p.endPhase("fetched") }
+func (p *ttyProgress) EndExtract() { p.endPhase("extracted") }
+
+func (p *ttyProgress) endPhase(verb string) {
+	// Force one final redraw at 100% before printing the summary.
+	p.maybeDraw(true)
+	p.mu.Lock()
+	total := p.total
+	p.phase = ""
+	p.mu.Unlock()
+	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: %s %d packages\n", verb, total)
+}
+
+func (p *ttyProgress) Done(packageCount int) {
+	elapsed := time.Since(p.startTime).Round(10 * time.Millisecond)
+	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: installed %d package%s in %s\n",
+		packageCount, plural(packageCount), elapsed)
+}
+
+// maybeDraw renders the current line. force=true bypasses the throttle.
+// Concurrent callers serialize on p.mu so writes don't interleave.
+func (p *ttyProgress) maybeDraw(force bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	if !force && now.Sub(p.lastDraw) < redrawInterval {
+		return
+	}
+	if p.phase == "" {
+		return
+	}
+	cur := int(p.current.Load())
+	if cur > p.total {
+		cur = p.total
+	}
+	bar := renderBar(cur, p.total)
+	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: %s %d/%d  %s  %s",
+		p.phase, cur, p.total, bar, p.label)
+	p.lastDraw = now
+}
+
+func renderBar(cur, total int) string {
+	if total <= 0 {
+		return "[" + repeat(" ", barWidth) + "]"
+	}
+	filled := cur * barWidth / total
+	if filled > barWidth {
+		filled = barWidth
+	}
+	return "[" + repeat("=", filled) + repeat(" ", barWidth-filled) + "]"
+}
+
+func repeat(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	out := make([]byte, 0, len(s)*n)
+	for i := 0; i < n; i++ {
+		out = append(out, s...)
+	}
+	return string(out)
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}

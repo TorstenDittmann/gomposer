@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNoopProgressIsSilent(t *testing.T) {
@@ -41,4 +42,66 @@ func TestNewProgressQuietReturnsNoop(t *testing.T) {
 	if !strings.Contains(buf.String(), "") || buf.Len() != 0 {
 		t.Errorf("Quiet noop wrote output: %q", buf.String())
 	}
+}
+
+func TestTTYProgressEmitsClearAndProgress(t *testing.T) {
+	var buf bytes.Buffer
+	p := newTTYProgress(&buf)
+	p.BeginFetch(2)
+	p.IncFetch("vendor/a v1.0.0")
+	// Sleep past the 50ms throttle so the second Inc redraws.
+	time.Sleep(60 * time.Millisecond)
+	p.IncFetch("vendor/b v2.0.0")
+	p.EndFetch()
+
+	out := buf.String()
+	if !strings.Contains(out, "\r\x1b[K") {
+		t.Errorf("expected line-clear escape \\r\\x1b[K in output, got %q", out)
+	}
+	if !strings.Contains(out, "fetching") {
+		t.Errorf("expected phase label \"fetching\", got %q", out)
+	}
+	if !strings.Contains(out, "2/2") {
+		t.Errorf("expected final 2/2 count, got %q", out)
+	}
+	if !strings.Contains(out, "vendor/b v2.0.0") {
+		t.Errorf("expected most recent package label, got %q", out)
+	}
+}
+
+func TestTTYProgressDoneSummary(t *testing.T) {
+	var buf bytes.Buffer
+	p := newTTYProgress(&buf)
+	p.BeginFetch(1)
+	p.IncFetch("vendor/a")
+	p.EndFetch()
+	p.BeginExtract(1)
+	p.IncExtract("vendor/a")
+	p.EndExtract()
+	p.Done(1)
+	out := buf.String()
+	if !strings.Contains(out, "1 package") {
+		t.Errorf("expected final summary with package count, got %q", out)
+	}
+	// The summary must be on its own line — i.e. preceded by the line clear.
+	if !strings.Contains(out, "\r\x1b[K") {
+		t.Errorf("expected final clear before summary, got %q", out)
+	}
+}
+
+func TestTTYProgressThrottle(t *testing.T) {
+	var buf bytes.Buffer
+	p := newTTYProgress(&buf)
+	p.BeginFetch(100)
+	for i := 0; i < 50; i++ {
+		p.IncFetch("vendor/x")
+	}
+	// Without sleeping, only the BeginFetch draw + at most one throttled
+	// redraw should have fired. We don't assert an exact byte count, but the
+	// number of \r\x1b[K sequences should be far less than 50.
+	clears := strings.Count(buf.String(), "\r\x1b[K")
+	if clears > 5 {
+		t.Errorf("throttle ineffective: %d redraws for 50 increments", clears)
+	}
+	p.EndFetch()
 }
