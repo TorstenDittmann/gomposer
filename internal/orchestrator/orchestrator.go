@@ -7,6 +7,14 @@
 //
 // Every other package exposes a narrow API. The orchestrator owns the
 // errgroup, the worker pool, and the cancellation context.
+//
+// On the install path (forceResolve=false), if a lockfile is present, the
+// orchestrator ALSO kicks off a speculative prefetch that downloads every
+// locked package in parallel with the resolver. This is "optimistic op 1"
+// from the design spec: the fetcher is content-addressed by sha256, so
+// double-fetching is cheap, and on the common case (lock matches resolver)
+// fetchAll observes a warm store and the network IO disappears into the
+// resolver's critical path. See internal/orchestrator/prefetch.go.
 package orchestrator
 
 import (

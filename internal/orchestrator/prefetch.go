@@ -1,3 +1,22 @@
+// Lock-driven speculative prefetch — "optimistic op 1" from the design
+// spec. When a lockfile exists and we're on the install (not update) path,
+// every package in the lock is dispatched to the production Fetcher in
+// parallel with the resolver pass. On the common case the resolver agrees
+// with the lock and fetchAll observes a fully warm store. On the rare case
+// the resolver picks different versions, the speculative downloads are
+// wasted bandwidth but their bytes still seed the content-addressed store
+// for future runs.
+//
+// Errors from prefetch are intentionally swallowed: the resolver pass plus
+// the authoritative fetchAll is what surfaces real failures with the right
+// error message and the right stack frame. A failed prefetch never
+// propagates to the user.
+//
+// Safety: the Fetcher is content-addressed by sha256, the on-disk store
+// uses tmp-then-rename for atomicity, and concurrent Fetch calls for the
+// same sha race only over the final os.Rename — both branches resolve to
+// the same byte-for-byte file. See internal/store/store.go and
+// internal/fetcher/fetcher.go for the underlying invariants.
 package orchestrator
 
 import (
