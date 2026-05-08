@@ -153,3 +153,31 @@ func TestPrefetcherRespectsContextCancel(t *testing.T) {
 		t.Fatal("Wait did not return after context cancel")
 	}
 }
+
+// TestPrefetchRacesResolver: every locked package's Fetch fires before the
+// (simulated slow) resolver returns. Directional assertion, not a tight
+// deadline — bump the sleep if flaky in CI.
+func TestPrefetchRacesResolver(t *testing.T) {
+	f := &recordingFetcher{delay: 5 * time.Millisecond}
+	lf := &lock.File{Packages: []lock.Package{
+		{Name: "v/a"}, {Name: "v/b"}, {Name: "v/c"}, {Name: "v/d"},
+	}}
+	pf := startPrefetch(context.Background(), lf, f, false, 4)
+
+	// Simulate slow resolver. With 4 workers @ 5ms each, all 4 Fetches
+	// comfortably complete inside this window.
+	time.Sleep(100 * time.Millisecond)
+
+	got := f.Calls()
+	want := map[string]bool{"v/a": true, "v/b": true, "v/c": true, "v/d": true}
+	seen := 0
+	for _, n := range got {
+		if want[n] {
+			seen++
+		}
+	}
+	if seen < len(want) {
+		t.Fatalf("prefetch did not see all 4 packages by 'resolver finish'; calls = %v", got)
+	}
+	pf.Wait()
+}
