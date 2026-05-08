@@ -2,12 +2,16 @@ package orchestrator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
 // recordingFetcher records every Fetch call. Optionally sleeps `delay` so
@@ -151,6 +155,191 @@ func TestPrefetcherRespectsContextCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Wait did not return after context cancel")
+	}
+}
+
+// --- Fixture helpers for integration tests ---
+
+// writeFixtureManifest writes a minimal composer.json to dir.
+func writeFixtureManifest(tb testing.TB, dir string) {
+	tb.Helper()
+	data := []byte(`{"name":"vendor/root","require":{"vendor/a":"*"}}`)
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"), data, 0o644); err != nil {
+		tb.Fatalf("writeFixtureManifest: %v", err)
+	}
+}
+
+// writeFixtureLock writes a minimal composer-go.lock with the given package
+// names as production packages. Each package gets a stub Dist URL and sha256.
+func writeFixtureLock(tb testing.TB, dir string, names []string) {
+	tb.Helper()
+	pkgs := make([]lock.Package, len(names))
+	for i, n := range names {
+		pkgs[i] = lock.Package{
+			Name:    n,
+			Version: "1.0.0",
+			Dist:    lock.Dist{Type: "zip", URL: "http://stub/" + n, Sha256: "stub-sha-" + n},
+		}
+	}
+	f := &lock.File{
+		SchemaVersion: lock.SchemaVersion,
+		Packages:      pkgs,
+	}
+	data, err := f.Encode()
+	if err != nil {
+		tb.Fatalf("writeFixtureLock: encode: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "composer-go.lock"), data, 0o644); err != nil {
+		tb.Fatalf("writeFixtureLock: write: %v", err)
+	}
+}
+
+// recordingMaterializer is a Materializer that creates the destination dir and
+// records each (key, dest) call.
+type recordingMaterializer struct {
+	mu    sync.Mutex
+	wrote map[string]string // dest -> key
+}
+
+func (m *recordingMaterializer) Materialize(_ context.Context, key, dest string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.wrote == nil {
+		m.wrote = make(map[string]string)
+	}
+	m.wrote[dest] = key
+	return os.MkdirAll(dest, 0o755)
+}
+
+// recordingAutoloader is an Autoloader that writes a stub autoload.php.
+type recordingAutoloader struct{}
+
+func (a *recordingAutoloader) Generate(_ context.Context, projectDir string, _ []lock.Package, _ *manifest.Manifest) error {
+	vendorDir := filepath.Join(projectDir, "vendor")
+	if err := os.MkdirAll(vendorDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(vendorDir, "autoload.php"), []byte("<?php\n"), 0o644)
+}
+
+// stubSource is a SourceLookup that returns a single PackageVersion for any
+// requested package name, using the names provided at construction time.
+type stubSource struct {
+	names []string
+}
+
+func newStubSource(names ...string) *stubSource { return &stubSource{names: names} }
+
+func (s *stubSource) Lookup(_ context.Context, name string) (*registry.PackageMetadata, error) {
+	return &registry.PackageMetadata{
+		Name: name,
+		Versions: []registry.PackageVersion{{
+			Name:        name,
+			Version:     "1.0.0",
+			VersionNorm: "1.0.0.0",
+			Dist:        registry.Dist{Type: "zip", URL: "http://stub/" + name, Sha: "stub-sha-" + name},
+		}},
+	}, nil
+}
+
+// warmAwareFetcher reports unique-name fetches as `cold` and repeat
+// fetches for the same name as `warm`. Mirrors the real fetcher's
+// content-addressed dedup behaviour.
+type warmAwareFetcher struct {
+	mu   sync.Mutex
+	cold map[string]int
+	warm map[string]int
+}
+
+func newWarmAwareFetcher() *warmAwareFetcher {
+	return &warmAwareFetcher{cold: map[string]int{}, warm: map[string]int{}}
+}
+
+func (w *warmAwareFetcher) Fetch(_ context.Context, pkg lock.Package) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, seen := w.cold[pkg.Name]; seen {
+		w.warm[pkg.Name]++
+	} else {
+		w.cold[pkg.Name]++
+	}
+	return "sha-" + pkg.Name, nil
+}
+
+// runInstallWith is a small helper that drives Install with a fake fetcher
+// and the standard test-injected materializer/autoloader, returning the
+// fetcher for assertions.
+func runInstallWith(t *testing.T, dir string, noPrefetch bool, names []string) *warmAwareFetcher {
+	t.Helper()
+	writeFixtureManifest(t, dir)
+	writeFixtureLock(t, dir, names)
+	f := newWarmAwareFetcher()
+	opts := Options{
+		ProjectDir:   dir,
+		Workers:      4,
+		NoPrefetch:   noPrefetch,
+		Fetcher:      f,
+		Materializer: &recordingMaterializer{},
+		Autoloader:   &recordingAutoloader{},
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	return f
+}
+
+// TestPipelinePrefetchWarmsFetchAll: install with a real lockfile, assert
+// every package fetched exactly once cold AND that fetchAll observed at
+// least one warm hit (i.e. prefetch ran first).
+func TestPipelinePrefetchWarmsFetchAll(t *testing.T) {
+	f := runInstallWith(t, t.TempDir(), false, []string{"vendor/a", "vendor/b", "vendor/c"})
+	for _, name := range []string{"vendor/a", "vendor/b", "vendor/c"} {
+		if f.cold[name] != 1 {
+			t.Errorf("%s: cold = %d, want 1", name, f.cold[name])
+		}
+	}
+	total := 0
+	for _, n := range f.warm {
+		total += n
+	}
+	if total == 0 {
+		t.Errorf("expected fetchAll to observe at least one warm hit (prefetch may not be wired)")
+	}
+}
+
+// TestPipelinePrefetchSkippedOnUpdate: forceResolve=true must skip prefetch.
+// We use a stub Source so Solve returns the same packages as the lock; the
+// assertion is "zero warm hits" rather than the resolver's correctness.
+func TestPipelinePrefetchSkippedOnUpdate(t *testing.T) {
+	dir := t.TempDir()
+	writeFixtureManifest(t, dir)
+	writeFixtureLock(t, dir, []string{"vendor/a"})
+	f := newWarmAwareFetcher()
+	opts := Options{
+		ProjectDir:   dir,
+		Workers:      4,
+		Fetcher:      f,
+		Materializer: &recordingMaterializer{},
+		Autoloader:   &recordingAutoloader{},
+		Source:       newStubSource("vendor/a"), // existing helper
+	}
+	if err := Update(context.Background(), opts); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	for name, n := range f.warm {
+		if n > 0 {
+			t.Errorf("update should not prefetch; got %d warm hits for %s", n, name)
+		}
+	}
+}
+
+// TestPipelinePrefetchSkippedWithFlag: --no-prefetch suppresses prefetch.
+func TestPipelinePrefetchSkippedWithFlag(t *testing.T) {
+	f := runInstallWith(t, t.TempDir(), true, []string{"vendor/a", "vendor/b"})
+	for name, n := range f.warm {
+		if n > 0 {
+			t.Errorf("--no-prefetch should disable prefetch; got %d warm hits for %s", n, name)
+		}
 	}
 }
 
