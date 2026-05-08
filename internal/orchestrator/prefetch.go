@@ -82,16 +82,29 @@ func startPrefetch(ctx context.Context, lf *lock.File, f Fetcher, includeDev boo
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(limit)
-	for i := range pkgs {
-		p := pkgs[i] // capture
-		g.Go(func() error {
-			// Swallow errors: prefetch is opportunistic. The resolver +
-			// fetchAll is what surfaces problems. Returning an error here
-			// would cancel the errgroup and abort sibling downloads we'd
-			// happily have completed.
-			_, _ = f.Fetch(gctx, p)
-			return nil
-		})
-	}
-	return &Prefetcher{wait: func() { _ = g.Wait() }}
+
+	// Dispatch goroutines from a background goroutine so startPrefetch returns
+	// immediately. Without this, errgroup.SetLimit causes g.Go to block the
+	// caller when the concurrency cap is reached — defeating the purpose of
+	// starting downloads "in the background while the resolver runs".
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range pkgs {
+			p := pkgs[i] // capture
+			g.Go(func() error {
+				// Swallow errors: prefetch is opportunistic. The resolver +
+				// fetchAll is what surfaces problems. Returning an error here
+				// would cancel the errgroup and abort sibling downloads we'd
+				// happily have completed.
+				_, _ = f.Fetch(gctx, p)
+				return nil
+			})
+		}
+		_ = g.Wait()
+	}()
+
+	return &Prefetcher{wait: func() {
+		<-done // wait for all g.Go calls + all goroutines to finish
+	}}
 }
