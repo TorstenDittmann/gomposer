@@ -214,3 +214,29 @@ func TestParseInlineAliasStripsAs(t *testing.T) {
 		t.Errorf("dev-feat-phased-chunk-upload-api should satisfy itself when alias-stripped")
 	}
 }
+
+func TestParseCommaAsAnd(t *testing.T) {
+	cases := []struct {
+		constraint, version string
+		want                bool
+	}{
+		{">=1.0,<2.0", "1.5.0", true},
+		{">=1.0,<2.0", "2.0.0", false},
+		{">=1.0, <2.0", "1.5.0", true},
+		{">=1.0 ,<2.0", "1.5.0", true},
+		{">=1.0 , <2.0", "1.5.0", true},
+		{">=1.0,<2.0,!=1.5.0", "1.5.0", false},
+		{">=1.0,<2.0,!=1.5.0", "1.4.0", true},
+	}
+	for _, tc := range cases {
+		c, err := Parse(tc.constraint)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", tc.constraint, err)
+			continue
+		}
+		v, _ := ParseVersion(tc.version)
+		if got := c.Satisfies(v); got != tc.want {
+			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}

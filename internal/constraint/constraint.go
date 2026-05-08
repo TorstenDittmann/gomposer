@@ -92,7 +92,27 @@ func andSatisfies(clause []term, v Version) bool {
 	return true
 }
 
-// Parse parses a constraint string.
+// Parse parses a Composer-style constraint string.
+//
+// Accepted syntax:
+//   - Exact versions:        "1.2.3", "v1.2.3", "1.0.0-RC1"
+//   - Comparison operators:  ">=1.0", ">1", "<=2.0", "<2.0", "=1.0.0", "!=1.0.0"
+//     Operator and version may be space-separated: ">= 1.0".
+//   - Caret and tilde:       "^1.2", "~1.2.3"
+//   - Wildcards:             "1.*", "1.x", "1.2.*"
+//   - Hyphen ranges:         "1.0 - 2.0" (partial RHS bumps the next segment;
+//     full RHS is inclusive)
+//   - AND combinators:       whitespace OR "," between terms within a clause.
+//   - OR combinators:        "|" or "||" between alternatives.
+//   - Dev branches:          "dev-main", "dev-feature/foo", "dev-main#sha".
+//   - Branch aliases:        "1.x-dev", "1.0.x-dev".
+//   - Inline aliases:        "dev-foo as 1.0.0" (RHS recorded but ignored).
+//   - Stability suffix:      "1.0.0@dev", "^2.0@beta" (parsed and recorded
+//     on Version.StabilityFlag; resolver semantics
+//     are deferred to a later stability-policy plan).
+//
+// The returned Constraint retains the original input on Constraint.Original
+// for diagnostics.
 func Parse(s string) (Constraint, error) {
 	c := Constraint{Original: s}
 	// Composer accepts both "|" and "||" as the OR separator, often without
@@ -107,6 +127,10 @@ func Parse(s string) (Constraint, error) {
 	groups := strings.Split(normalized, "|")
 	for _, g := range groups {
 		g = stripInlineAlias(g)
+		// Composer accepts ',' as a synonym for whitespace inside an AND clause.
+		// Normalizing to space here keeps parseAndClause's strings.Fields-based
+		// tokenization correct for both forms.
+		g = strings.ReplaceAll(g, ",", " ")
 		clause, err := parseAndClause(g)
 		if err != nil {
 			return c, err
