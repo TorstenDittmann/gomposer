@@ -95,7 +95,10 @@ func andSatisfies(clause []term, v Version) bool {
 // Parse parses a constraint string.
 func Parse(s string) (Constraint, error) {
 	c := Constraint{Original: s}
-	groups := strings.Split(s, "||")
+	// Composer accepts both "|" and "||" as the OR separator, often without
+	// surrounding whitespace ("^7.2|^8.0"). Normalize "||" to "|" first, then
+	// split on "|".
+	groups := strings.Split(strings.ReplaceAll(s, "||", "|"), "|")
 	for _, g := range groups {
 		clause, err := parseAndClause(g)
 		if err != nil {
