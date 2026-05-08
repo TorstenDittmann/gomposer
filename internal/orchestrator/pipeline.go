@@ -339,10 +339,13 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		return err
 	}
 
+	prefetch := maybeStartPrefetch(ctx, ps, opts, forceResolve)
+
 	t.Begin("resolve")
 	lockFile, err := resolveOrCache(ctx, ps, forceResolve)
 	t.End("resolve")
 	if err != nil {
+		prefetch.Wait()
 		return err
 	}
 	t.SetPackagesResolved(len(lockFile.Packages) + len(lockFile.PackagesDev))
@@ -369,6 +372,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	// re-emit them, and (in --no-dev) escalate to a hard error.
 	warnings, err := evaluatePlatformWarnings(all, ps.platform, ps.ignoreSet, opts.NoDev, opts.Quiet, os.Stderr)
 	if err != nil {
+		prefetch.Wait()
 		return err
 	}
 	if len(warnings) > 0 {
@@ -382,6 +386,11 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 			}
 		}
 	}
+
+	// Join the prefetcher: every speculative download has either completed
+	// (warm-store hit for fetchAll) or been cancelled. Either way fetchAll
+	// is authoritative.
+	prefetch.Wait()
 
 	t.Begin("fetch")
 	keys, err := fetchAll(ctx, all, opts.Fetcher, workerCount(opts.Workers))

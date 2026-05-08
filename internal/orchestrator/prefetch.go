@@ -27,6 +27,33 @@ func (p *Prefetcher) Wait() {
 	p.wait()
 }
 
+// maybeStartPrefetch decides whether to kick off the speculative prefetch
+// based on opts and the parsed pipeline state. It returns a non-nil
+// *Prefetcher in every branch — callers can Wait() unconditionally without
+// nil-checking. When prefetch is skipped, the returned Prefetcher's Wait
+// is a no-op.
+//
+// Skip conditions:
+//   - forceResolve (update path): we have no reason to trust the lock.
+//   - opts.NoNetwork: test-only flag; honour the no-network contract.
+//   - opts.NoPrefetch: explicit user opt-out.
+//   - len(ps.lockBytes) == 0: no lockfile to be confident in.
+//   - lock.Decode fails: corrupt lock; fall back to resolver.
+//   - opts.Fetcher == nil: defensive (defaultDeps wiring failure).
+func maybeStartPrefetch(ctx context.Context, ps *pipelineState, opts Options, forceResolve bool) *Prefetcher {
+	if forceResolve || opts.NoNetwork || opts.NoPrefetch {
+		return &Prefetcher{}
+	}
+	if len(ps.lockBytes) == 0 || opts.Fetcher == nil {
+		return &Prefetcher{}
+	}
+	lf, err := lock.Decode(ps.lockBytes)
+	if err != nil {
+		return &Prefetcher{}
+	}
+	return startPrefetch(ctx, lf, opts.Fetcher, !opts.NoDev, workerCount(opts.Workers))
+}
+
 // startPrefetch begins downloading every package in lf using f. Errors are
 // intentionally swallowed: the resolver pass is the authoritative gate, and
 // any genuine missing-package or network failure will surface there with
