@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -453,5 +454,73 @@ func TestInstallIgnorePlatformReqSuppresses(t *testing.T) {
 		if strings.Contains(w, "acme/leaf") {
 			t.Errorf("warning should be suppressed: %q", w)
 		}
+	}
+}
+
+func TestInstallEmitsPluginWarning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"),
+		[]byte(`{"name":"vendor/pkg","require":{"acme/plugin":"1.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+		"acme/plugin": {Name: "acme/plugin", Versions: []registry.PackageVersion{{
+			Name: "acme/plugin", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Type: "composer-plugin",
+			Dist: registry.Dist{Type: "zip", URL: "u", Sha: "s"},
+		}}},
+	}}
+	var stderr bytes.Buffer
+	opts := Options{
+		ProjectDir:   dir,
+		Source:       src,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		WarnWriter:   &stderr,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "acme/plugin") ||
+		!strings.Contains(stderr.String(), "composer-plugin") {
+		t.Errorf("expected plugin warning, got: %q", stderr.String())
+	}
+	// Plugin must STILL flow through fetch + materialize.
+	if mz, ok := opts.Materializer.(*fakeMaterializer); ok {
+		want := filepath.Join(dir, "vendor", "acme", "plugin")
+		if _, ok := mz.wrote[want]; !ok {
+			t.Errorf("plugin package not materialized; wrote=%+v", mz.wrote)
+		}
+	}
+}
+
+func TestInstallSuppressedByManifestExtra(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{
+"name":"vendor/pkg",
+"require":{"acme/plugin":"1.0.0"},
+"extra":{"composer-go":{"suppress-plugin-warnings":true}}
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+		"acme/plugin": {Name: "acme/plugin", Versions: []registry.PackageVersion{{
+			Name: "acme/plugin", Version: "1.0.0", VersionNorm: "1.0.0.0",
+			Type: "composer-plugin",
+			Dist: registry.Dist{Type: "zip", URL: "u", Sha: "s"},
+		}}},
+	}}
+	var stderr bytes.Buffer
+	opts := Options{
+		ProjectDir: dir, Source: src,
+		Fetcher: &fakeFetcher{}, Materializer: &fakeMaterializer{}, Autoloader: &fakeAutoloader{},
+		WarnWriter: &stderr,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("expected no warning under suppression, got: %q", stderr.String())
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/torstendittmann/composer-go/internal/lock"
 	"github.com/torstendittmann/composer-go/internal/manifest"
 	"github.com/torstendittmann/composer-go/internal/platform"
+	"github.com/torstendittmann/composer-go/internal/plugins"
 	"github.com/torstendittmann/composer-go/internal/registry"
 	"github.com/torstendittmann/composer-go/internal/registry/packagist"
 	"github.com/torstendittmann/composer-go/internal/resolver"
@@ -308,6 +309,19 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	lockFile, err := resolveOrCache(ctx, ps, forceResolve)
 	if err != nil {
 		return err
+	}
+
+	// Stage-2 plugin policy: detect composer-plugin / composer-installer
+	// packages and emit one warning per plugin to stderr. The packages
+	// themselves still flow through fetch + materialize — they are installed
+	// into vendor/ but never executed. See
+	// docs/superpowers/plans/2026-05-08-stage2-plan6-plugin-warning.md.
+	if warnings := plugins.Inspect(lockFile, m); len(warnings) > 0 {
+		w := opts.WarnWriter
+		if w == nil {
+			w = os.Stderr
+		}
+		plugins.Render(w, warnings)
 	}
 
 	all := append([]lock.Package(nil), lockFile.Packages...)

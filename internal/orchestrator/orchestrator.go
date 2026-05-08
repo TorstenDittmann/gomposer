@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -65,6 +66,10 @@ type Options struct {
 	// Scripts is the runner for lifecycle events. Tests inject a fake;
 	// production callers leave it nil and defaultDeps wires the real one.
 	Scripts ScriptsRunner
+
+	// WarnWriter receives stage-2 plugin warnings. Defaults to os.Stderr
+	// when nil. Tests inject a buffer to assert on the rendered text.
+	WarnWriter io.Writer
 }
 
 // Install runs the install pipeline: use the existing lockfile if present and
