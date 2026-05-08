@@ -85,7 +85,7 @@ func BenchmarkPrefetchVsNoPrefetch(b *testing.B) {
 		}
 
 		// fetchAll: with prefetch, all shas are warm; without, all are cold.
-		if _, err := fetchAll(context.Background(), lf.Packages, f, 8); err != nil {
+		if _, err := fetchAll(context.Background(), lf.Packages, f, 8, nil); err != nil {
 			b.Fatalf("fetchAll: %v", err)
 		}
 

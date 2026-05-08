@@ -37,6 +37,21 @@ type ScriptsRunner interface {
 	Run(ctx context.Context, event scripts.Event, opts scripts.Options) error
 }
 
+// Progress receives phase + per-package events from the pipeline. nil means
+// no progress reporting (use noopProgress for an explicit silent default).
+//
+// Defined as a local interface to avoid importing the cli package; any
+// implementation that satisfies the cli.Progress contract will work.
+type Progress interface {
+	BeginFetch(total int)
+	IncFetch(name string)
+	EndFetch()
+	BeginExtract(total int)
+	IncExtract(name string)
+	EndExtract()
+	Done(packageCount int)
+}
+
 // Options configures a single Install or Update run.
 type Options struct {
 	// ProjectDir is the directory containing composer.json. Required.
@@ -87,6 +102,11 @@ type Options struct {
 	// WarnWriter receives stage-2 plugin warnings. Defaults to os.Stderr
 	// when nil. Tests inject a buffer to assert on the rendered text.
 	WarnWriter io.Writer
+
+	// Progress, if non-nil, receives fetch/extract progress events. Suppressed
+	// when Quiet is set; callers should pass nil or a noop Progress in that
+	// case to avoid double-suppression confusion.
+	Progress Progress
 }
 
 // Install runs the install pipeline: use the existing lockfile if present and

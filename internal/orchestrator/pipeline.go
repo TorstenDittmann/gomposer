@@ -30,6 +30,26 @@ import (
 	"github.com/torstendittmann/composer-go/internal/store"
 )
 
+// progressOrNoop returns opts.Progress if set, otherwise a silent stub. Every
+// pipeline call site should go through this helper so phase code never has
+// to nil-check.
+func progressOrNoop(p Progress) Progress {
+	if p == nil {
+		return noopProgress{}
+	}
+	return p
+}
+
+type noopProgress struct{}
+
+func (noopProgress) BeginFetch(int)    {}
+func (noopProgress) IncFetch(string)   {}
+func (noopProgress) EndFetch()         {}
+func (noopProgress) BeginExtract(int)  {}
+func (noopProgress) IncExtract(string) {}
+func (noopProgress) EndExtract()       {}
+func (noopProgress) Done(int)          {}
+
 // Fetcher downloads a single locked package and returns a content-store key.
 // Implemented by an adapter over internal/fetcher (Plan 4).
 type Fetcher interface {
@@ -186,10 +206,14 @@ func resolveOnly(ctx context.Context, opts Options) (*lock.File, error) {
 
 // fetchAll downloads every package in pkgs concurrently with at most
 // `workers` goroutines in flight. Returns map[name]storeKey.
-func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int) (map[string]string, error) {
+func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int, prog Progress) (map[string]string, error) {
 	if workers < 1 {
 		workers = 1
 	}
+	prog = progressOrNoop(prog)
+	prog.BeginFetch(len(pkgs))
+	defer prog.EndFetch()
+
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
 
@@ -206,6 +230,7 @@ func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int) 
 			mu.Lock()
 			keys[p.Name] = key
 			mu.Unlock()
+			prog.IncFetch(p.Name + " " + p.Version)
 			return nil
 		})
 	}
@@ -234,10 +259,14 @@ func backfillSha(pkgs []lock.Package, keys map[string]string) {
 }
 
 // materializeAll extracts each package from the store into vendor/.
-func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package, keys map[string]string, m Materializer, workers int) error {
+func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package, keys map[string]string, m Materializer, workers int, prog Progress) error {
 	if workers < 1 {
 		workers = 1
 	}
+	prog = progressOrNoop(prog)
+	prog.BeginExtract(len(pkgs))
+	defer prog.EndExtract()
+
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
 	for i := range pkgs {
@@ -251,6 +280,7 @@ func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package,
 			if err := m.Materialize(gctx, key, dest); err != nil {
 				return fmt.Errorf("orchestrator: materialize %s: %w", p.Name, err)
 			}
+			prog.IncExtract(p.Name + " " + p.Version)
 			return nil
 		})
 	}
@@ -393,7 +423,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	prefetch.Wait()
 
 	t.Begin("fetch")
-	keys, err := fetchAll(ctx, all, opts.Fetcher, workerCount(opts.Workers))
+	keys, err := fetchAll(ctx, all, opts.Fetcher, workerCount(opts.Workers), opts.Progress)
 	if err != nil {
 		t.End("fetch")
 		return err
@@ -406,7 +436,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	t.End("fetch")
 
 	t.Begin("materialize")
-	matErr := materializeAll(ctx, opts.ProjectDir, all, keys, opts.Materializer, workerCount(opts.Workers))
+	matErr := materializeAll(ctx, opts.ProjectDir, all, keys, opts.Materializer, workerCount(opts.Workers), opts.Progress)
 	t.End("materialize")
 	if matErr != nil {
 		return matErr
@@ -438,6 +468,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		return err
 	}
 	t.FlushScripts()
+	progressOrNoop(opts.Progress).Done(len(all))
 	return nil
 }
 

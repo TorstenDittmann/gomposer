@@ -138,7 +138,7 @@ func TestFetchPhaseDownloadsAllPackages(t *testing.T) {
 		{Name: "c/z", Version: "3.0.0", Dist: lock.Dist{Type: "zip", URL: "u3", Sha256: "s3"}},
 	}
 	ff := &fakeFetcher{}
-	keys, err := fetchAll(context.Background(), pkgs, ff, 2)
+	keys, err := fetchAll(context.Background(), pkgs, ff, 2, nil)
 	if err != nil {
 		t.Fatalf("fetchAll: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestFetchPhaseDownloadsAllPackages(t *testing.T) {
 func TestFetchPhaseSurfacesError(t *testing.T) {
 	pkgs := []lock.Package{{Name: "bad/pkg", Dist: lock.Dist{URL: "u"}}}
 	ff := &fakeFetcher{returnFn: func(string) (string, error) { return "", errors.New("network down") }}
-	if _, err := fetchAll(context.Background(), pkgs, ff, 2); err == nil {
+	if _, err := fetchAll(context.Background(), pkgs, ff, 2, nil); err == nil {
 		t.Error("expected error when fetcher fails")
 	}
 }
@@ -188,7 +188,7 @@ func TestMaterializePhasePopulatesVendor(t *testing.T) {
 		"vendor/b": "key-b",
 	}
 	mz := &fakeMaterializer{}
-	if err := materializeAll(context.Background(), dir, pkgs, keys, mz, 2); err != nil {
+	if err := materializeAll(context.Background(), dir, pkgs, keys, mz, 2, nil); err != nil {
 		t.Fatalf("materializeAll: %v", err)
 	}
 	if len(mz.wrote) != 2 {
