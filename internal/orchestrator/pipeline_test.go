@@ -2,12 +2,17 @@ package orchestrator
 
 import (
 	"bytes"
+	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/torstendittmann/composer-go/internal/constraint"
 	"github.com/torstendittmann/composer-go/internal/lock"
 	"github.com/torstendittmann/composer-go/internal/platform"
+	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
 func mustVer(t *testing.T, s string) constraint.Version {
@@ -102,5 +107,59 @@ func TestEvaluatePlatformWarningsLibStarOnce(t *testing.T) {
 	}
 	if libCount != 1 {
 		t.Errorf("expected exactly one coalesced lib-* warning; got %d in %+v", libCount, warnings)
+	}
+}
+
+func TestVerbosePrintsTimingBlock(t *testing.T) {
+	// Capture stderr.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	dir := t.TempDir()
+	manifestBytes := []byte(`{"name":"vendor/root","require":{"a/a":"^1.0"}}`)
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"), manifestBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		ProjectDir:   dir,
+		Verbose:      true,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		Source: &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+			"a/a": {Name: "a/a", Versions: []registry.PackageVersion{{
+				Name: "a/a", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Dist: registry.Dist{Type: "zip", URL: "x", Sha: "deadbeef"},
+			}}},
+		}},
+		NoScripts: true,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	w.Close()
+	out, _ := io.ReadAll(r)
+	got := string(out)
+
+	for _, want := range []string{
+		"composer-go: timing",
+		"read manifest",
+		"resolve",
+		"fetch",
+		"materialize",
+		"autoload",
+		"write lock",
+		"-------- total",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("verbose output missing %q in:\n%s", want, got)
+		}
 	}
 }
