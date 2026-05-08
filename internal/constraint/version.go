@@ -49,13 +49,30 @@ type Version struct {
 	PreNum int
 	// Branch is set only for dev-* versions.
 	Branch string
+	// StabilityFlag is the literal value of an "@<stab>" suffix on the input
+	// (e.g. "dev", "stable", "beta"). Empty when the suffix is absent. This
+	// is recorded for the resolver's stability policy to consume; the parser
+	// itself ignores it once stripped.
+	StabilityFlag string
 	// Original is the input string, retained for round-tripping.
 	Original string
 }
 
 // ParseVersion parses a PHP-style version string.
 func ParseVersion(s string) (Version, error) {
-	v := Version{Original: s, Stability: Stable}
+	original := s
+	v := Version{Original: original, Stability: Stable}
+
+	// "@<stability>" suffix overrides package-global minimum-stability for
+	// this constraint only. Strip it before structural parsing; the suffix is
+	// recorded on v.StabilityFlag for the resolver to consult.
+	if at := strings.LastIndexByte(s, '@'); at >= 0 {
+		flag := s[at+1:]
+		if flag != "" && !strings.ContainsAny(flag, ".-+/ ") {
+			v.StabilityFlag = flag
+			s = s[:at]
+		}
+	}
 
 	// dev-<branch>
 	if strings.HasPrefix(s, "dev-") {

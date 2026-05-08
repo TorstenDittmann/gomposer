@@ -215,6 +215,44 @@ func TestParseInlineAliasStripsAs(t *testing.T) {
 	}
 }
 
+func TestParseStabilitySuffix(t *testing.T) {
+	cases := []struct {
+		constraint, version string
+		want                bool
+	}{
+		{"1.0.0@stable", "1.0.0", true},
+		{"1.0.0@dev", "1.0.0", true},
+		{"^2.0@beta", "2.5.0", true},
+		{"^2.0@beta", "1.9.9", false},
+		{">=1.0@dev", "1.5.0", true},
+		{">=1.0@dev,<2.0@dev", "1.5.0", true},
+	}
+	for _, tc := range cases {
+		c, err := Parse(tc.constraint)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", tc.constraint, err)
+			continue
+		}
+		v, _ := ParseVersion(tc.version)
+		if got := c.Satisfies(v); got != tc.want {
+			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}
+
+func TestParseVersionStabilitySuffixRecorded(t *testing.T) {
+	v, err := ParseVersion("1.0.0@dev")
+	if err != nil {
+		t.Fatalf("ParseVersion: %v", err)
+	}
+	if v.Major != 1 || v.Minor != 0 || v.Patch != 0 {
+		t.Errorf("got %d.%d.%d, want 1.0.0", v.Major, v.Minor, v.Patch)
+	}
+	if v.StabilityFlag != "dev" {
+		t.Errorf("StabilityFlag = %q, want dev", v.StabilityFlag)
+	}
+}
+
 func TestParseHyphenRange(t *testing.T) {
 	cases := []struct {
 		constraint, version string
