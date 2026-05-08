@@ -163,3 +163,38 @@ func TestVerbosePrintsTimingBlock(t *testing.T) {
 		}
 	}
 }
+
+func TestQuietSuppressesTimingBlock(t *testing.T) {
+	r, w, _ := os.Pipe()
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	dir := t.TempDir()
+	manifestBytes := []byte(`{"name":"vendor/root","require":{"a/a":"^1.0"}}`)
+	os.WriteFile(filepath.Join(dir, "composer.json"), manifestBytes, 0o644)
+
+	opts := Options{
+		ProjectDir:   dir,
+		Verbose:      true,
+		Quiet:        true,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		Source: &fakeSource{pkgs: map[string]*registry.PackageMetadata{
+			"a/a": {Name: "a/a", Versions: []registry.PackageVersion{{
+				Name: "a/a", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Dist: registry.Dist{Type: "zip", URL: "x", Sha: "deadbeef"},
+			}}},
+		}},
+		NoScripts: true,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if strings.Contains(string(out), "composer-go: timing") {
+		t.Errorf("quiet+verbose should suppress timing, got:\n%s", out)
+	}
+}
