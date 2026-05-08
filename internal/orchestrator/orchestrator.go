@@ -125,5 +125,10 @@ func run(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve b
 	if opts.NoNetwork {
 		return errors.New("orchestrator: NoNetwork is set but manifest has requires")
 	}
-	return runFullPipeline(ctx, opts, m, forceResolve)
+	t := NewTimings()
+	err := runFullPipeline(ctx, opts, m, forceResolve, t)
+	if opts.Verbose && !opts.Quiet {
+		t.Render(os.Stderr)
+	}
+	return err
 }

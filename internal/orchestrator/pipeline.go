@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -173,6 +174,9 @@ func resolveOnly(ctx context.Context, opts Options) (*lock.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := defaultDeps(&opts, m, nil); err != nil {
+		return nil, err
+	}
 	ps, err := newPipelineState(opts, m)
 	if err != nil {
 		return nil, err
@@ -292,9 +296,28 @@ func fireEvent(ctx context.Context, event scripts.Event, opts Options, m *manife
 	})
 }
 
+// firePhase wraps fireEvent with timing accumulation. The `scripts` phase is
+// the sum of all four lifecycle event firings; we add to it incrementally.
+func firePhase(ctx context.Context, t *Timings, event scripts.Event, opts Options, m *manifest.Manifest) error {
+	if opts.NoScripts || opts.Scripts == nil {
+		return nil
+	}
+	start := time.Now()
+	err := opts.Scripts.Run(ctx, event, scripts.Options{
+		ProjectDir: opts.ProjectDir,
+		Scripts:    m.Scripts,
+		Verbose:    opts.Verbose,
+	})
+	if t != nil {
+		// Append directly so multiple calls collapse to a single phase entry.
+		t.AddScriptsTime(time.Since(start))
+	}
+	return err
+}
+
 // runFullPipeline ties all phases together.
-func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool) error {
-	if err := defaultDeps(&opts, m); err != nil {
+func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool, t *Timings) error {
+	if err := defaultDeps(&opts, m, t); err != nil {
 		return err
 	}
 
@@ -305,18 +328,24 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		postCmd = scripts.EventPostUpdate
 	}
 
-	if err := fireEvent(ctx, preCmd, opts, m); err != nil {
+	if err := firePhase(ctx, t, preCmd, opts, m); err != nil {
 		return err
 	}
 
+	t.Begin("read manifest")
 	ps, err := newPipelineState(opts, m)
+	t.End("read manifest")
 	if err != nil {
 		return err
 	}
+
+	t.Begin("resolve")
 	lockFile, err := resolveOrCache(ctx, ps, forceResolve)
+	t.End("resolve")
 	if err != nil {
 		return err
 	}
+	t.SetPackagesResolved(len(lockFile.Packages) + len(lockFile.PackagesDev))
 
 	// Stage-2 plugin policy: detect composer-plugin / composer-installer
 	// packages and emit one warning per plugin to stderr. The packages
@@ -354,8 +383,10 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		}
 	}
 
+	t.Begin("fetch")
 	keys, err := fetchAll(ctx, all, opts.Fetcher, workerCount(opts.Workers))
 	if err != nil {
+		t.End("fetch")
 		return err
 	}
 	// Back-fill Dist.Sha256 from the fetched keys so the lockfile records the
@@ -363,27 +394,41 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	// the streaming hash computed during download.
 	backfillSha(lockFile.Packages, keys)
 	backfillSha(lockFile.PackagesDev, keys)
-	if err := materializeAll(ctx, opts.ProjectDir, all, keys, opts.Materializer, workerCount(opts.Workers)); err != nil {
+	t.End("fetch")
+
+	t.Begin("materialize")
+	matErr := materializeAll(ctx, opts.ProjectDir, all, keys, opts.Materializer, workerCount(opts.Workers))
+	t.End("materialize")
+	if matErr != nil {
+		return matErr
+	}
+
+	if err := firePhase(ctx, t, scripts.EventPreAutoloadDump, opts, m); err != nil {
 		return err
 	}
 
-	if err := fireEvent(ctx, scripts.EventPreAutoloadDump, opts, m); err != nil {
-		return err
+	t.Begin("autoload")
+	alErr := generateAutoloader(ctx, opts.ProjectDir, all, m, opts.Autoloader)
+	t.End("autoload")
+	if alErr != nil {
+		return alErr
 	}
-	if err := generateAutoloader(ctx, opts.ProjectDir, all, m, opts.Autoloader); err != nil {
-		return err
-	}
-	if err := fireEvent(ctx, scripts.EventPostAutoloadDump, opts, m); err != nil {
+
+	if err := firePhase(ctx, t, scripts.EventPostAutoloadDump, opts, m); err != nil {
 		return err
 	}
 
-	if err := writeLock(opts.ProjectDir, lockFile); err != nil {
-		return err
+	t.Begin("write lock")
+	wlErr := writeLock(opts.ProjectDir, lockFile)
+	t.End("write lock")
+	if wlErr != nil {
+		return wlErr
 	}
 
-	if err := fireEvent(ctx, postCmd, opts, m); err != nil {
+	if err := firePhase(ctx, t, postCmd, opts, m); err != nil {
 		return err
 	}
+	t.FlushScripts()
 	return nil
 }
 
@@ -627,7 +672,7 @@ func anySliceToStrings(v any) []string {
 // defaultDeps wires up the production Fetcher, Materializer, Autoloader, and
 // (if absent) Source. Tests typically pre-populate Options so this returns
 // quickly with what's already there.
-func defaultDeps(opts *Options, m *manifest.Manifest) error {
+func defaultDeps(opts *Options, m *manifest.Manifest, t *Timings) error {
 	cacheRoot, err := cache.Root()
 	if err != nil {
 		return err
@@ -676,6 +721,9 @@ func defaultDeps(opts *Options, m *manifest.Manifest) error {
 			return err
 		}
 		f := realfetcher.New(s, nil)
+		if t != nil {
+			f.OnFetch = t.AddFetch
+		}
 		if opts.Fetcher == nil {
 			opts.Fetcher = &fetcherAdapter{f: f, store: s, vcsClients: vcsClients}
 		}
