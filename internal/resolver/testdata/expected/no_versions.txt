@@ -2,5 +2,6 @@ resolver: conflict — no compatible set of versions found:
   - no published versions of "acme/strict" satisfy the requested constraint
 
 derivation:
-  Because no published version of acme/strict matches ^99.0
-  and your manifest requires acme/strict ^99.0, version solving failed.
+  Because no published version of acme/strict matches ^99.0 and your manifest requires acme/strict
+  ^99.0,
+  version solving failed.

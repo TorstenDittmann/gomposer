@@ -3,7 +3,7 @@ resolver: conflict — no compatible set of versions found:
   - dependency clash: b/y requires c/z but the chosen version cannot be reconciled
 
 derivation:
-  Because b/y 1.0.0 requires c/z ^1.0 and a/x 1.0.0 requires b/y ^1.0,
+  Because a/x 1.0.0 requires b/y ^1.0 and b/y 1.0.0 requires c/z ^1.0,
   a/x 1.0.0 requires c/z ^1.0.
   And because your manifest requires a/x ^1.0, every solution requires c/z ^1.0.
   So, because your manifest requires c/z ^2.0, version solving failed.

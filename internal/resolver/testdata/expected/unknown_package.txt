@@ -2,5 +2,6 @@ resolver: conflict — no compatible set of versions found:
   - package "acme/missing" is not available from any configured registry
 
 derivation:
-  Because acme/missing is not available from any configured registry
-  and your manifest requires acme/missing ^1.0, version solving failed.
+  Because acme/missing is not available from any configured registry and your manifest requires
+  acme/missing ^1.0,
+  version solving failed.
