@@ -146,3 +146,36 @@ func TestIsExplicitDev(t *testing.T) {
 		}
 	}
 }
+
+func TestParseWildcard(t *testing.T) {
+	cases := []struct {
+		constraint, version string
+		want                bool
+	}{
+		{"1.1.*", "1.1.0", true},
+		{"1.1.*", "1.1.3", true},
+		{"1.1.*", "1.2.0", false},
+		{"1.1.*", "1.0.9", false},
+		{"1.*", "1.0.0", true},
+		{"1.*", "1.99.99", true},
+		{"1.*", "2.0.0", false},
+		{"1.*", "0.9.9", false},
+		{"1.x", "1.5.0", true},
+		{"1.x", "2.0.0", false},
+		{"1.2.x", "1.2.5", true},
+		{"1.2.x", "1.3.0", false},
+		{"*", "0.0.1", true},
+		{"*", "9.9.9", true},
+	}
+	for _, tc := range cases {
+		c, err := Parse(tc.constraint)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", tc.constraint, err)
+			continue
+		}
+		v, _ := ParseVersion(tc.version)
+		if got := c.Satisfies(v); got != tc.want {
+			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}

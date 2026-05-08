@@ -2,6 +2,7 @@ package constraint
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -130,6 +131,11 @@ func parseTerm(f string) ([]term, error) {
 	if f == "*" {
 		return []term{}, nil
 	}
+	// Wildcard form: "1.*", "1.2.*", "1.x", "1.2.x" — expand to a half-open
+	// range. Per Composer: "1.2.*" => ">=1.2.0 <1.3.0"; "1.*" => ">=1.0.0 <2.0.0".
+	if isWildcardTerm(f) {
+		return wildcardTerms(f)
+	}
 	switch {
 	case strings.HasPrefix(f, "^"):
 		return caretTerms(f[1:])
@@ -237,4 +243,67 @@ func nextTildeUpper(s string, v Version) Version {
 		return Version{Major: v.Major, Minor: v.Minor + 1, Stability: Stable}
 	}
 	return Version{Major: v.Major + 1, Stability: Stable}
+}
+
+// isWildcardTerm reports whether f looks like a Composer wildcard constraint
+// such as "1.*", "1.2.*", "1.x", or "1.2.x". The branch-alias form "1.x-dev"
+// is NOT a wildcard — it's parsed as a regular dev version.
+func isWildcardTerm(f string) bool {
+	if strings.Contains(f, "-") {
+		return false
+	}
+	parts := strings.Split(f, ".")
+	for _, p := range parts {
+		if p == "*" || p == "x" || p == "X" {
+			return true
+		}
+	}
+	return false
+}
+
+// wildcardTerms expands a wildcard like "1.2.*" or "1.x" into a half-open
+// range >= base, < bumped-prefix.
+func wildcardTerms(f string) ([]term, error) {
+	parts := strings.Split(f, ".")
+	// Find the first wildcard segment; everything before it is the prefix.
+	wildAt := -1
+	for i, p := range parts {
+		if p == "*" || p == "x" || p == "X" {
+			wildAt = i
+			break
+		}
+	}
+	if wildAt < 0 {
+		return nil, fmt.Errorf("constraint: no wildcard in %q", f)
+	}
+	if wildAt == 0 {
+		return []term{}, nil // "*"-only, vacuously true
+	}
+	prefix := make([]int, wildAt)
+	for i, p := range parts[:wildAt] {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, fmt.Errorf("constraint: invalid wildcard %q: %w", f, err)
+		}
+		prefix[i] = n
+	}
+	lower := versionFromInts(prefix)
+	bumped := append([]int(nil), prefix...)
+	bumped[len(bumped)-1]++
+	upper := versionFromInts(bumped)
+	return []term{{OpGe, lower}, {OpLt, upper}}, nil
+}
+
+func versionFromInts(parts []int) Version {
+	v := Version{Stability: Stable}
+	if len(parts) > 0 {
+		v.Major = parts[0]
+	}
+	if len(parts) > 1 {
+		v.Minor = parts[1]
+	}
+	if len(parts) > 2 {
+		v.Patch = parts[2]
+	}
+	return v
 }
