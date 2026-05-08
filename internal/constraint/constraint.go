@@ -98,8 +98,15 @@ func Parse(s string) (Constraint, error) {
 	// Composer accepts both "|" and "||" as the OR separator, often without
 	// surrounding whitespace ("^7.2|^8.0"). Normalize "||" to "|" first, then
 	// split on "|".
-	groups := strings.Split(strings.ReplaceAll(s, "||", "|"), "|")
+	normalized := strings.ReplaceAll(s, "||", "|")
+	// Inline branch-alias form: "<branch> as <version>" lets the user pin a
+	// dev branch but treat it as the aliased version for transitive
+	// constraint matching. Stage-2 honors the LHS (the actual branch to
+	// resolve); the "as <version>" suffix is recorded but does not yet
+	// participate in transitive matching.
+	groups := strings.Split(normalized, "|")
 	for _, g := range groups {
+		g = stripInlineAlias(g)
 		clause, err := parseAndClause(g)
 		if err != nil {
 			return c, err
@@ -107,6 +114,18 @@ func Parse(s string) (Constraint, error) {
 		c.clauses = append(c.clauses, clause)
 	}
 	return c, nil
+}
+
+// stripInlineAlias removes the " as <alias>" tail from a constraint clause,
+// returning just the actual constraint to resolve. It tolerates surrounding
+// whitespace and is case-sensitive on the literal " as " token.
+func stripInlineAlias(s string) string {
+	trimmed := strings.TrimSpace(s)
+	idx := strings.Index(trimmed, " as ")
+	if idx < 0 {
+		return trimmed
+	}
+	return strings.TrimSpace(trimmed[:idx])
 }
 
 func parseAndClause(s string) ([]term, error) {

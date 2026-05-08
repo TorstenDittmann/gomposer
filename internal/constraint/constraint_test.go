@@ -203,3 +203,14 @@ func TestParseSinglePipeOr(t *testing.T) {
 		}
 	}
 }
+
+func TestParseInlineAliasStripsAs(t *testing.T) {
+	c, err := Parse("dev-feat-phased-chunk-upload-api as 2.0.1")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	v, _ := ParseVersion("dev-feat-phased-chunk-upload-api")
+	if !c.Satisfies(v) {
+		t.Errorf("dev-feat-phased-chunk-upload-api should satisfy itself when alias-stripped")
+	}
+}
