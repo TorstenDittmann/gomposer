@@ -29,6 +29,7 @@ type versionLister struct {
 
 	platform           *platform.Platform
 	ignorePlatformReqs map[string]bool
+	strictPlatform     bool
 }
 
 func newVersionLister(src registry.SourceLookup, minStability string) *versionLister {
@@ -126,18 +127,24 @@ func (vl *versionLister) versions(ctx context.Context, pkg string) ([]listedVers
 		raw = append(raw, listedVersion{Raw: rv.Version, Parsed: parsed, Record: rv})
 	}
 	sort.Slice(raw, func(i, j int) bool { return raw[i].Parsed.Compare(raw[j].Parsed) > 0 })
-	// Platform filtering: drop versions whose platform reqs are not satisfied.
-	// If ALL versions are incompatible, keep them all so that the resolver can
-	// still pick the best one — the orchestrator will emit warnings afterward.
-	filtered := make([]listedVersion, 0, len(raw))
-	for _, v := range raw {
-		if vl.versionInstallable(v.Record) {
-			filtered = append(filtered, v)
-		}
-	}
+	// Platform filtering. By default (strictPlatform=false) we keep ALL
+	// versions and rely on the orchestrator to emit post-resolution warnings
+	// for any mismatches. Filtering only kicks in under --no-dev (strict
+	// mode), where mismatches are fatal: drop incompatible versions, but if
+	// every version is incompatible keep them all so the resolver still has
+	// candidates to surface a conflict against (the orchestrator will then
+	// fail loudly with the platform reason).
 	out := raw
-	if len(filtered) > 0 {
-		out = filtered
+	if vl.strictPlatform {
+		filtered := make([]listedVersion, 0, len(raw))
+		for _, v := range raw {
+			if vl.versionInstallable(v.Record) {
+				filtered = append(filtered, v)
+			}
+		}
+		if len(filtered) > 0 {
+			out = filtered
+		}
 	}
 	vl.cache[pkg] = out
 	return out, nil

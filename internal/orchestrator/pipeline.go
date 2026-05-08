@@ -105,6 +105,10 @@ var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.Sour
 		Platform:            ps.platform,
 		IgnorePlatformReqs:  ps.ignoreSet,
 		PlatformFingerprint: ps.platformStr,
+		// Only --no-dev mode hard-fails on platform mismatches; default mode
+		// keeps incompatible versions in the candidate pool and reports
+		// warnings post-resolution.
+		StrictPlatform: ps.opts.NoDev,
 	})
 }
 

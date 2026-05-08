@@ -143,6 +143,7 @@ func TestVersionListerFiltersIncompatibleByPlatform(t *testing.T) {
 	})
 	vl := newVersionLister(src, constraint.Stable.String())
 	vl.platform = pf
+	vl.strictPlatform = true // platform filtering is opt-in (--no-dev mode)
 
 	got, err := vl.versions(context.Background(), "acme/widget")
 	if err != nil {
@@ -150,6 +151,34 @@ func TestVersionListerFiltersIncompatibleByPlatform(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Record.Version != "2.0.0" {
 		t.Errorf("expected only 2.0.0 to survive php-8.2 filter; got %+v", got)
+	}
+}
+
+func TestVersionListerKeepsIncompatibleByDefault(t *testing.T) {
+	// Mirror of the strict-mode test above, but without strictPlatform: all
+	// versions stay in the candidate list and the orchestrator emits
+	// warnings post-resolution. Regression guard for the "1.1.* matches a
+	// version filtered for ext-scrypt" bug.
+	php82 := mustVerRslv(t, "8.2.0")
+	pf := &platform.Platform{PHPVersion: php82, Extensions: map[string]constraint.Version{}}
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"acme/widget": {
+			{Name: "acme/widget", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Require: map[string]string{"php": "^7.4"}},
+			{Name: "acme/widget", Version: "2.0.0", VersionNorm: "2.0.0.0",
+				Require: map[string]string{"php": "^8.0"}},
+		},
+	})
+	vl := newVersionLister(src, constraint.Stable.String())
+	vl.platform = pf
+	// No strictPlatform → both versions kept.
+
+	got, err := vl.versions(context.Background(), "acme/widget")
+	if err != nil {
+		t.Fatalf("versions: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("default mode should keep all candidate versions; got %+v", got)
 	}
 }
 

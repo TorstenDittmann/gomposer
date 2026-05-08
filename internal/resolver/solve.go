@@ -34,6 +34,15 @@ type Input struct {
 	// Composer's --ignore-platform-reqs).
 	IgnorePlatformReqs map[string]bool
 
+	// StrictPlatform makes platform-req mismatches fatal at the resolver
+	// stage: incompatible versions are dropped from the candidate list.
+	// Default false matches the design-spec rule "warnings by default,
+	// hard errors only under --no-dev". The orchestrator wires this from
+	// opts.NoDev. The orchestrator still reports warnings post-resolution
+	// either way; what differs is whether the bad versions are filtered
+	// before the solver sees them.
+	StrictPlatform bool
+
 	// PlatformFingerprint is the string form of Platform, retained for
 	// the resolution-result cache key.
 	PlatformFingerprint string
@@ -58,6 +67,7 @@ func Solve(ctx context.Context, in Input) (*Result, error) {
 	vl := newVersionLister(in.Source, minStab)
 	vl.platform = in.Platform
 	vl.ignorePlatformReqs = in.IgnorePlatformReqs
+	vl.strictPlatform = in.StrictPlatform
 
 	// Stability flags: explicit "dev-<branch>" requires admit that branch
 	// regardless of minStab (Composer-compatible behaviour).
