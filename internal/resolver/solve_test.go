@@ -3,6 +3,7 @@ package resolver
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/torstendittmann/composer-go/internal/manifest"
@@ -157,6 +158,46 @@ func TestSolveDevRequiresExcluded(t *testing.T) {
 	}
 	if len(res.Packages) != 1 || len(res.PackagesDev) != 0 {
 		t.Errorf("Packages=%d, PackagesDev=%d (dev should be excluded)", len(res.Packages), len(res.PackagesDev))
+	}
+}
+
+func TestSolveConflictMessageReadsAsDerivation(t *testing.T) {
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"a/x": {testlookup.Pkg("a/x", "1.0.0", map[string]string{"b/y": "^1.0"})},
+		"b/y": {
+			testlookup.Pkg("b/y", "1.0.0", nil),
+			testlookup.Pkg("b/y", "2.0.0", nil),
+		},
+	})
+	m := &manifest.Manifest{
+		Require: map[string]string{
+			"a/x": "^1.0",
+			"b/y": "^2.0",
+		},
+	}
+	_, err := Solve(context.Background(), Input{Manifest: m, Source: src})
+	if err == nil {
+		t.Fatalf("expected ConflictError, got nil")
+	}
+	ce := new(ConflictError)
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ConflictError, got %T: %v", err, err)
+	}
+	msg := ce.Error()
+	for _, want := range []string{
+		"resolver: conflict",
+		"derivation:",
+		"a/x",
+		"b/y",
+		"version solving failed",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("rendered message missing %q.\n--- full message ---\n%s", want, msg)
+		}
+	}
+	// No "TODO(conflict)" placeholders should leak.
+	if strings.Contains(msg, "TODO(conflict)") {
+		t.Errorf("placeholder leaked into rendered output:\n%s", msg)
 	}
 }
 
