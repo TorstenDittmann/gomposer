@@ -35,6 +35,7 @@ func toLockPackage(p ResolvedPackage) lock.Package {
 	return lock.Package{
 		Name:    p.Name,
 		Version: versionStr,
+		Type:    p.Record.Type, // forwarded for plugin detection in the orchestrator
 		Source: lock.Source{
 			Type: p.Record.Source.Type,
 			URL:  p.Record.Source.URL,

@@ -47,6 +47,28 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPackageTypeRoundTrips(t *testing.T) {
+	in := &File{
+		SchemaVersion: SchemaVersion,
+		Generator:     Generator{Name: "composer-go", Version: "0.1.0"},
+		Packages: []Package{
+			{Name: "composer/installers", Version: "2.3.0", Type: "composer-installer"},
+			{Name: "psr/log", Version: "3.0.0", Type: "library"},
+		},
+	}
+	data, err := in.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	out, err := Decode(data)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if out.Packages[0].Type != "composer-installer" || out.Packages[1].Type != "library" {
+		t.Errorf("Type round-trip failed: %+v", out.Packages)
+	}
+}
+
 func TestDecodeRejectsUnknownSchema(t *testing.T) {
 	data := []byte(`{"schemaVersion": 99}`)
 	_, err := Decode(data)
