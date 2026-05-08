@@ -108,8 +108,8 @@ func andSatisfies(clause []term, v Version) bool {
 //   - Branch aliases:        "1.x-dev", "1.0.x-dev".
 //   - Inline aliases:        "dev-foo as 1.0.0" (RHS recorded but ignored).
 //   - Stability suffix:      "1.0.0@dev", "^2.0@beta" (parsed and recorded
-//     on Version.StabilityFlag; resolver semantics
-//     are deferred to a later stability-policy plan).
+//     on Version.StabilityFlag; resolver semantics are deferred to a later
+//     stability-policy plan).
 //
 // The returned Constraint retains the original input on Constraint.Original
 // for diagnostics.
