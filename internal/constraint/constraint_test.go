@@ -1,6 +1,9 @@
 package constraint
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseExact(t *testing.T) {
 	c, err := Parse("1.2.3")
@@ -339,6 +342,36 @@ func TestParseCommaAsAnd(t *testing.T) {
 		v, _ := ParseVersion(tc.version)
 		if got := c.Satisfies(v); got != tc.want {
 			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}
+
+func TestIsExplicitDevWithSlash(t *testing.T) {
+	cases := map[string]bool{
+		"dev-feature/foo":       true,
+		"dev-fix/bug-123":       true,
+		"dev-release/v2":        true,
+		"dev-feature/foo#abcd1": true,
+		// Slashed branch with mixed alternative is NOT explicit-dev.
+		"dev-feature/foo || ^1.0": false,
+	}
+	for in, want := range cases {
+		c, err := Parse(in)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", in, err)
+			continue
+		}
+		if got := c.IsExplicitDev(); got != want {
+			t.Errorf("IsExplicitDev(%q) = %v, want %v", in, got, want)
+		}
+		if want {
+			body := strings.TrimPrefix(in, "dev-")
+			if i := strings.IndexByte(body, '#'); i >= 0 {
+				body = body[:i]
+			}
+			if got := c.ExplicitDevBranch(); got != body {
+				t.Errorf("ExplicitDevBranch(%q) = %q, want %q", in, got, body)
+			}
 		}
 	}
 }
