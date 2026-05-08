@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/torstendittmann/composer-go/internal/auth"
 	autoloadpkg "github.com/torstendittmann/composer-go/internal/autoload"
 	"github.com/torstendittmann/composer-go/internal/cache"
 	realfetcher "github.com/torstendittmann/composer-go/internal/fetcher"
@@ -20,7 +21,9 @@ import (
 	"github.com/torstendittmann/composer-go/internal/platform"
 	"github.com/torstendittmann/composer-go/internal/plugins"
 	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/composer-go/internal/registry/multisource"
 	"github.com/torstendittmann/composer-go/internal/registry/packagist"
+	"github.com/torstendittmann/composer-go/internal/registry/vcs"
 	"github.com/torstendittmann/composer-go/internal/resolver"
 	"github.com/torstendittmann/composer-go/internal/scripts"
 	"github.com/torstendittmann/composer-go/internal/store"
@@ -287,7 +290,7 @@ func fireEvent(ctx context.Context, event scripts.Event, opts Options, m *manife
 
 // runFullPipeline ties all phases together.
 func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool) error {
-	if err := defaultDeps(&opts); err != nil {
+	if err := defaultDeps(&opts, m); err != nil {
 		return err
 	}
 
@@ -565,19 +568,47 @@ func anySliceToStrings(v any) []string {
 // defaultDeps wires up the production Fetcher, Materializer, Autoloader, and
 // (if absent) Source. Tests typically pre-populate Options so this returns
 // quickly with what's already there.
-func defaultDeps(opts *Options) error {
+func defaultDeps(opts *Options, m *manifest.Manifest) error {
 	cacheRoot, err := cache.Root()
 	if err != nil {
 		return err
 	}
 	if opts.Source == nil {
-		c, err := packagist.New(packagist.Config{
+		// Auth store: best-effort load from default paths. A missing or
+		// unreadable file is non-fatal (no credentials applied).
+		authStore, _ := auth.Load()
+
+		// Packagist client (always present; serves as the fallback).
+		pc, err := packagist.New(packagist.Config{
 			CacheDir: filepath.Join(cacheRoot, "packagist"),
+			Auth:     authStore,
 		})
 		if err != nil {
 			return err
 		}
-		opts.Source = c
+
+		// VCS clients from manifest.Repositories. Skip silently on error
+		// in stage 2 — the orchestrator will surface a "package not found"
+		// downstream if a VCS repo is unreachable.
+		var vcsClients []*vcs.Client
+		if m != nil && len(m.Repositories) > 0 {
+			vcsClients, _ = vcs.NewFromManifest(m.Repositories, vcs.Options{
+				CacheRoot: filepath.Join(cacheRoot, "vcs"),
+			})
+		}
+
+		// Aggregate: VCS first (so explicit repos win over Packagist),
+		// then Packagist as fallback.
+		if len(vcsClients) > 0 {
+			lookups := make([]registry.SourceLookup, 0, len(vcsClients)+1)
+			for _, c := range vcsClients {
+				lookups = append(lookups, c)
+			}
+			lookups = append(lookups, pc)
+			opts.Source = multisource.NewWithLookups(lookups)
+		} else {
+			opts.Source = pc
+		}
 	}
 	if opts.Fetcher == nil || opts.Materializer == nil {
 		s, err := store.New(filepath.Join(cacheRoot, "store"))
