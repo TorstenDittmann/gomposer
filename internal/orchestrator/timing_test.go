@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 	"time"
 )
@@ -50,5 +52,47 @@ func TestTimingsTotal(t *testing.T) {
 	total := tt.Total()
 	if total < 4*time.Millisecond {
 		t.Errorf("Total = %v, want >= 4ms", total)
+	}
+}
+
+func TestTimingsRender(t *testing.T) {
+	tt := NewTimings()
+	// Synthesize phases without calling Begin/End so durations are
+	// deterministic.
+	tt.phases = []Phase{
+		{Name: "read manifest", Elapsed: 1 * time.Millisecond},
+		{Name: "resolve", Elapsed: 50 * time.Millisecond},
+		{Name: "fetch", Elapsed: 200 * time.Millisecond},
+		{Name: "materialize", Elapsed: 30 * time.Millisecond},
+		{Name: "autoload", Elapsed: 10 * time.Millisecond},
+		{Name: "scripts", Elapsed: 5 * time.Millisecond},
+		{Name: "write lock", Elapsed: 2 * time.Millisecond},
+	}
+	tt.counters = Counters{
+		PackagesResolved: 12,
+		PackagesFetched:  12,
+		CacheHits:        4,
+		BytesDownloaded:  512 * 1024,
+	}
+
+	var buf bytes.Buffer
+	tt.Render(&buf)
+	got := buf.String()
+
+	want := []string{
+		"composer-go: timing",
+		"read manifest        1 ms",
+		"resolve             50 ms (12 packages)",
+		"fetch              200 ms (8/12 cold, 512 KB)",
+		"materialize         30 ms",
+		"autoload            10 ms",
+		"scripts              5 ms",
+		"write lock           2 ms",
+		"-------- total     298 ms",
+	}
+	for _, line := range want {
+		if !strings.Contains(got, line) {
+			t.Errorf("missing line %q in:\n%s", line, got)
+		}
 	}
 }
