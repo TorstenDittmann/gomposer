@@ -131,6 +131,7 @@ func Parse(s string) (Constraint, error) {
 		// Normalizing to space here keeps parseAndClause's strings.Fields-based
 		// tokenization correct for both forms.
 		g = strings.ReplaceAll(g, ",", " ")
+		g = glueOperatorSpaces(g)
 		clause, err := parseAndClause(g)
 		if err != nil {
 			return c, err
@@ -150,6 +151,45 @@ func stripInlineAlias(s string) string {
 		return trimmed
 	}
 	return strings.TrimSpace(trimmed[:idx])
+}
+
+// glueOperatorSpaces collapses one or more spaces between a leading comparison
+// operator and the following version token, so that ">= 1.0" parses
+// the same as ">=1.0". It only fuses when the lookahead starts with
+// a digit, 'v', or 'V' to avoid mangling otherwise-valid clauses like
+// ">=1.0 <2.0" (where "<" properly leads a fresh term).
+func glueOperatorSpaces(s string) string {
+	ops := []string{">=", "<=", "!=", ">", "<", "=", "^", "~"}
+	out := strings.Builder{}
+	out.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		matched := ""
+		for _, op := range ops {
+			if strings.HasPrefix(s[i:], op) {
+				matched = op
+				break
+			}
+		}
+		if matched == "" {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		out.WriteString(matched)
+		j := i + len(matched)
+		// Only glue when the next non-space byte is a version-leading char.
+		k := j
+		for k < len(s) && s[k] == ' ' {
+			k++
+		}
+		if k > j && k < len(s) && (isDigit(s[k]) || s[k] == 'v' || s[k] == 'V') {
+			i = k
+			continue
+		}
+		i = j
+	}
+	return out.String()
 }
 
 func parseAndClause(s string) ([]term, error) {
