@@ -43,6 +43,7 @@ func newInstallCmd() *cobra.Command {
 				Quiet:              flagQuiet,
 				IgnorePlatformReqs: ignored,
 				NoPrefetch:         noPrefetch,
+				Progress:           NewProgress(cmd.ErrOrStderr(), ProgressOptions{Quiet: flagQuiet}),
 			})
 		},
 	}
