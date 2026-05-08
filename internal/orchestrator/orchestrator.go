@@ -46,6 +46,15 @@ type Options struct {
 	// without making network calls. Used by unit tests with empty manifests
 	// and by future "offline mode" flags.
 	NoNetwork bool
+	// NoPrefetch disables stage-3 lock-driven speculative prefetch. Default
+	// (false) means prefetch is on. Mostly useful for benchmarks that want
+	// to measure the isolated wall-clock contribution of optimistic op 1.
+	//
+	// Prefetch is also implicitly disabled when:
+	//   - forceResolve is true (the update path),
+	//   - NoNetwork is true,
+	//   - the lockfile is absent or fails to parse.
+	NoPrefetch bool
 	// Source overrides the default Packagist source. Tests inject a fake
 	// here. Production callers leave it nil.
 	Source registry.SourceLookup

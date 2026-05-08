@@ -15,6 +15,7 @@ func newUpdateCmd() *cobra.Command {
 	var (
 		projectDir   string
 		allowPlugins []string // accepted for Composer-CLI compatibility; no-op (composer-go does not run plugins)
+		noPrefetch   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -41,10 +42,12 @@ func newUpdateCmd() *cobra.Command {
 				Verbose:            flagVerbose,
 				Quiet:              flagQuiet,
 				IgnorePlatformReqs: ignored,
+				NoPrefetch:         noPrefetch,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")
+	cmd.Flags().BoolVar(&noPrefetch, "no-prefetch", false, "disable lock-driven speculative prefetch (benchmark hook)")
 	cmd.Flags().StringSliceVar(&allowPlugins, "allow-plugins", nil,
 		"accepted for Composer compatibility; no-op (composer-go does not run plugins, so this flag has no effect)")
 	// Allow bare `--allow-plugins` with no value (Composer accepts that form).
