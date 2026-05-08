@@ -1,0 +1,16 @@
+{
+  "name": "composer-go-bench/symfony-skeleton",
+  "type": "project",
+  "description": "Subset of symfony/skeleton for benchmarking.",
+  "require": {
+    "php": "^8.2",
+    "symfony/console": "^7.0",
+    "symfony/dotenv": "^7.0",
+    "symfony/flex": "^2.4",
+    "symfony/framework-bundle": "^7.0",
+    "symfony/runtime": "^7.0",
+    "symfony/yaml": "^7.0"
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

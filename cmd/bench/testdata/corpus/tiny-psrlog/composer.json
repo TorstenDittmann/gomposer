@@ -1,0 +1,8 @@
+{
+  "name": "composer-go-bench/tiny-psrlog",
+  "type": "library",
+  "description": "Single-package leaf fixture for composer-go benchmarks.",
+  "require": {
+    "psr/log": "^3.0"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "composer-go-bench/monolog",
+  "type": "library",
+  "description": "Small real-world fixture exercising 3-4 transitive deps.",
+  "require": {
+    "monolog/monolog": "^3.0"
+  }
+}
