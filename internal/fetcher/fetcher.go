@@ -27,6 +27,14 @@ import (
 type Fetcher struct {
 	store *store.Store
 	http  *http.Client
+	// OnFetch, if non-nil, is invoked exactly once per Fetch call after the
+	// outcome is known. fromCache=true means the bytes were already in the
+	// store and no network was used (bytes is then 0). fromCache=false
+	// means we downloaded `bytes` bytes.
+	//
+	// The hook is expected to be cheap and non-blocking; the orchestrator
+	// uses it to drive a Timings counter from worker goroutines.
+	OnFetch func(name string, bytes int, fromCache bool)
 }
 
 // New returns a Fetcher backed by store and client. A nil client falls back
@@ -54,6 +62,9 @@ func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) (string
 	}
 
 	if pv.Dist.Sha != "" && f.store.Has(pv.Dist.Sha) {
+		if f.OnFetch != nil {
+			f.OnFetch(pv.Name, 0, true)
+		}
 		return pv.Dist.Sha, nil
 	}
 
@@ -84,7 +95,8 @@ func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) (string
 
 	hasher := sha256.New()
 	tee := io.TeeReader(resp.Body, hasher)
-	if _, err := io.Copy(tmp, tee); err != nil {
+	n, err := io.Copy(tmp, tee)
+	if err != nil {
 		cleanup()
 		return "", fmt.Errorf("fetcher: %s: copy: %w", pv.Name, err)
 	}
@@ -115,9 +127,15 @@ func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) (string
 		// If rename failed because the destination already exists on a
 		// platform that disallows overwrite, treat as success.
 		if errors.Is(err, os.ErrExist) || f.store.Has(finalSha) {
+			if f.OnFetch != nil {
+				f.OnFetch(pv.Name, int(n), false)
+			}
 			return finalSha, nil
 		}
 		return "", fmt.Errorf("fetcher: %s: rename: %w", pv.Name, err)
+	}
+	if f.OnFetch != nil {
+		f.OnFetch(pv.Name, int(n), false)
 	}
 	return finalSha, nil
 }

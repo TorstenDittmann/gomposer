@@ -16,6 +16,63 @@ import (
 	"github.com/torstendittmann/composer-go/internal/store"
 )
 
+func TestFetchOnFetchCallback(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte("zip-bytes-here")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(body)
+	}))
+	defer srv.Close()
+
+	type call struct {
+		name      string
+		bytes     int
+		fromCache bool
+	}
+	var calls []call
+	f := New(s, srv.Client())
+	f.OnFetch = func(name string, bytes int, fromCache bool) {
+		calls = append(calls, call{name, bytes, fromCache})
+	}
+
+	pv := registry.PackageVersion{
+		Name: "vendor/pkg",
+		Dist: registry.Dist{Type: "zip", URL: srv.URL},
+	}
+	// Cold fetch: must report bytes>0, fromCache=false.
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
+		t.Fatalf("cold Fetch: %v", err)
+	}
+	// Re-fetch with the sha we just learned: should be a cache hit.
+	pv3 := pv
+	// Compute sha of body for the warm-hit short-circuit.
+	sum := sha256.Sum256(body)
+	pv3.Dist.Sha = hex.EncodeToString(sum[:])
+	if _, err := f.Fetch(context.Background(), pv3); err != nil {
+		t.Fatalf("warm Fetch: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("OnFetch fired %d times, want 2", len(calls))
+	}
+	if calls[0].fromCache {
+		t.Errorf("first call fromCache=true, want false")
+	}
+	if calls[0].bytes != len(body) {
+		t.Errorf("first call bytes=%d, want %d", calls[0].bytes, len(body))
+	}
+	if !calls[1].fromCache {
+		t.Errorf("second call fromCache=false, want true")
+	}
+	if calls[1].bytes != 0 {
+		t.Errorf("second call bytes=%d, want 0 on cache hit", calls[1].bytes)
+	}
+}
+
 // makeZip returns the bytes of a zip containing the given files (path -> contents).
 func makeZip(t *testing.T, files map[string]string) []byte {
 	t.Helper()
