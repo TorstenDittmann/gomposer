@@ -215,6 +215,41 @@ func TestParseInlineAliasStripsAs(t *testing.T) {
 	}
 }
 
+func TestParseHyphenRange(t *testing.T) {
+	cases := []struct {
+		constraint, version string
+		want                bool
+	}{
+		// Full right side: inclusive upper bound.
+		{"1.0.0 - 2.0.0", "1.0.0", true},
+		{"1.0.0 - 2.0.0", "2.0.0", true},
+		{"1.0.0 - 2.0.0", "2.0.1", false},
+		{"1.0.0 - 2.0.0", "0.9.9", false},
+		// Partial right side: bumped exclusive upper bound.
+		{"1.0 - 2.0", "2.0.5", true},  // <2.1.0 covers 2.0.5
+		{"1.0 - 2.0", "2.1.0", false}, // bumped upper is 2.1.0 exclusive
+		{"1.0 - 2", "2.99.99", true},  // <3.0.0 covers 2.99.99
+		{"1.0 - 2", "3.0.0", false},
+		// Partial left side: filled with zeroes.
+		{"1 - 2.0.0", "1.0.0", true},
+		{"1 - 2.0.0", "0.9.9", false},
+		// Hyphen ranges combine with other terms via comma/space AND.
+		{"1.0 - 2.0,!=1.5.0", "1.5.0", false},
+		{"1.0 - 2.0,!=1.5.0", "1.4.0", true},
+	}
+	for _, tc := range cases {
+		c, err := Parse(tc.constraint)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", tc.constraint, err)
+			continue
+		}
+		v, _ := ParseVersion(tc.version)
+		if got := c.Satisfies(v); got != tc.want {
+			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}
+
 func TestParseSpacedOperators(t *testing.T) {
 	cases := []struct {
 		constraint, version string

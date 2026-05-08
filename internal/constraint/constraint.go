@@ -197,15 +197,63 @@ func parseAndClause(s string) ([]term, error) {
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("constraint: empty clause in %q", s)
 	}
+	// Collapse hyphen-range triples ("X - Y") into a single synthetic term
+	// before per-field parsing. The hyphen MUST be a standalone field —
+	// "1.0-beta" is a pre-release, not a range.
 	out := make([]term, 0, len(fields))
-	for _, f := range fields {
-		t, err := parseTerm(f)
+	i := 0
+	for i < len(fields) {
+		if i+2 < len(fields) && fields[i+1] == "-" {
+			ts, err := hyphenRangeTerms(fields[i], fields[i+2])
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ts...)
+			i += 3
+			continue
+		}
+		t, err := parseTerm(fields[i])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, t...)
+		i++
 	}
 	return out, nil
+}
+
+// hyphenRangeTerms expands a Composer hyphen range "lhs - rhs" per
+// https://getcomposer.org/doc/articles/versions.md#range:
+//   - LHS partial: missing segments filled with 0, used as inclusive lower bound.
+//   - RHS fully qualified (three numeric segments): inclusive upper bound (OpLe).
+//   - RHS partial: bump the next segment up, exclusive upper bound (OpLt).
+//     "1.0 - 2"   => >=1.0.0 <3.0.0
+//     "1.0 - 2.0" => >=1.0.0 <2.1.0
+func hyphenRangeTerms(lhs, rhs string) ([]term, error) {
+	lo, err := ParseVersion(lhs)
+	if err != nil {
+		return nil, fmt.Errorf("constraint: invalid hyphen-range lower %q: %w", lhs, err)
+	}
+	rhsParts := strings.Split(strings.TrimPrefix(rhs, "v"), ".")
+	if len(rhsParts) >= 3 {
+		hi, err := ParseVersion(rhs)
+		if err != nil {
+			return nil, fmt.Errorf("constraint: invalid hyphen-range upper %q: %w", rhs, err)
+		}
+		return []term{{OpGe, lo}, {OpLe, hi}}, nil
+	}
+	// Partial right side: bump the last present segment.
+	nums := make([]int, len(rhsParts))
+	for i, p := range rhsParts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, fmt.Errorf("constraint: invalid hyphen-range upper %q: %w", rhs, err)
+		}
+		nums[i] = n
+	}
+	nums[len(nums)-1]++
+	hi := versionFromInts(nums)
+	return []term{{OpGe, lo}, {OpLt, hi}}, nil
 }
 
 func parseTerm(f string) ([]term, error) {
