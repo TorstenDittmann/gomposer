@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -131,6 +132,20 @@ func NewFromManifest(repos []manifest.Repository, opts Options) ([]*Client, erro
 func urlKey(url string) string {
 	sum := sha256.Sum256([]byte(url))
 	return hex.EncodeToString(sum[:])
+}
+
+// URL reports the configured remote URL. Used by the orchestrator to match
+// a lock.Package's Source.URL to the correct Client.
+func (c *Client) URL() string { return c.cfg.URL }
+
+// Archive streams a zip of `ref` (commit sha or tag/branch name) from the
+// local bare mirror to w. The mirror is refreshed if it's older than the
+// configured FetchTTL.
+func (c *Client) Archive(ctx context.Context, ref string, w io.Writer) error {
+	if err := c.ensureMirror(ctx); err != nil {
+		return err
+	}
+	return c.cfg.Git.Archive(ctx, c.mirrorDir, ref, w)
 }
 
 // ensureMirror clones if missing, otherwise refreshes if outside the TTL.

@@ -455,11 +455,20 @@ func formatViolation(pkg string, v platform.Violation) string {
 
 // fetcherAdapter wraps fetcher.Fetcher to implement the orchestrator Fetcher
 // interface. It downloads the package zip and returns the SHA256 as the key.
+// For VCS-sourced packages with no Dist URL, it falls back to git-archiving
+// the source ref via the matching vcs.Client.
 type fetcherAdapter struct {
-	f *realfetcher.Fetcher
+	f          *realfetcher.Fetcher
+	store      *store.Store
+	vcsClients []*vcs.Client // matched against pkg.Source.URL when Dist is empty
 }
 
 func (a *fetcherAdapter) Fetch(ctx context.Context, pkg lock.Package) (string, error) {
+	// Pure-VCS packages have an empty Dist (Packagist-tagged releases provide
+	// a Dist; resolved-from-VCS branches do not). Fall back to git archive.
+	if pkg.Dist.URL == "" && pkg.Source.Type == "git" && pkg.Source.URL != "" {
+		return a.fetchViaGitArchive(ctx, pkg)
+	}
 	pv := registry.PackageVersion{
 		Name: pkg.Name,
 		Dist: registry.Dist{
@@ -473,6 +482,52 @@ func (a *fetcherAdapter) Fetch(ctx context.Context, pkg lock.Package) (string, e
 		return "", err
 	}
 	return sha, nil
+}
+
+func (a *fetcherAdapter) fetchViaGitArchive(ctx context.Context, pkg lock.Package) (string, error) {
+	client := a.findVCSClient(pkg.Source.URL)
+	if client == nil {
+		return "", fmt.Errorf("orchestrator: %s: source URL %q has no matching vcs repository entry", pkg.Name, pkg.Source.URL)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(a.store.Path("x")), "vcs-*.zip")
+	if err != nil {
+		return "", fmt.Errorf("orchestrator: %s: create tmp: %w", pkg.Name, err)
+	}
+	tmpPath := tmp.Name()
+	hasher := sha256.New()
+	mw := io.MultiWriter(tmp, hasher)
+	if err := client.Archive(ctx, pkg.Source.Ref, mw); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("orchestrator: %s: %w", pkg.Name, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	sha := hex.EncodeToString(hasher.Sum(nil))
+	dest := a.store.Path(sha)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		_ = os.Remove(tmpPath)
+		if a.store.Has(sha) {
+			return sha, nil
+		}
+		return "", fmt.Errorf("orchestrator: %s: rename: %w", pkg.Name, err)
+	}
+	return sha, nil
+}
+
+func (a *fetcherAdapter) findVCSClient(sourceURL string) *vcs.Client {
+	for _, c := range a.vcsClients {
+		if c.URL() == sourceURL {
+			return c
+		}
+	}
+	return nil
 }
 
 // materializerAdapter wraps fetcher.Fetcher to implement the orchestrator Materializer
@@ -577,6 +632,17 @@ func defaultDeps(opts *Options, m *manifest.Manifest) error {
 	if err != nil {
 		return err
 	}
+
+	// VCS clients are built once and reused both by the Source aggregator and
+	// the fetcher (which falls back to git-archive for VCS-source packages
+	// with no Dist URL).
+	var vcsClients []*vcs.Client
+	if m != nil && len(m.Repositories) > 0 {
+		vcsClients, _ = vcs.NewFromManifest(m.Repositories, vcs.Options{
+			CacheRoot: filepath.Join(cacheRoot, "vcs"),
+		})
+	}
+
 	if opts.Source == nil {
 		// Auth store: best-effort load from default paths. A missing or
 		// unreadable file is non-fatal (no credentials applied).
@@ -589,16 +655,6 @@ func defaultDeps(opts *Options, m *manifest.Manifest) error {
 		})
 		if err != nil {
 			return err
-		}
-
-		// VCS clients from manifest.Repositories. Skip silently on error
-		// in stage 2 — the orchestrator will surface a "package not found"
-		// downstream if a VCS repo is unreachable.
-		var vcsClients []*vcs.Client
-		if m != nil && len(m.Repositories) > 0 {
-			vcsClients, _ = vcs.NewFromManifest(m.Repositories, vcs.Options{
-				CacheRoot: filepath.Join(cacheRoot, "vcs"),
-			})
 		}
 
 		// Aggregate: VCS first (so explicit repos win over Packagist),
@@ -621,7 +677,7 @@ func defaultDeps(opts *Options, m *manifest.Manifest) error {
 		}
 		f := realfetcher.New(s, nil)
 		if opts.Fetcher == nil {
-			opts.Fetcher = &fetcherAdapter{f: f}
+			opts.Fetcher = &fetcherAdapter{f: f, store: s, vcsClients: vcsClients}
 		}
 		if opts.Materializer == nil {
 			opts.Materializer = &materializerAdapter{f: f}

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,6 +113,21 @@ func (g Git) HeadBranch(ctx context.Context, dir string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("vcs: could not determine HEAD branch in %s", dir)
+}
+
+// Archive streams a zip archive of `ref` from the bare repo at dir to w.
+// Used when a VCS-source package has no Dist URL (Packagist provides one
+// for tagged releases; pure-git refs do not).
+func (g Git) Archive(ctx context.Context, dir, ref string, w io.Writer) error {
+	cmd := exec.CommandContext(ctx, g.bin(), "archive", "--format=zip", ref)
+	cmd.Dir = dir
+	var errBuf bytes.Buffer
+	cmd.Stdout = w
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("vcs: archive %s: %w\n%s", ref, err, errBuf.String())
+	}
+	return nil
 }
 
 // Show returns the bytes of `path` at `ref` in the bare repo at dir. A
