@@ -1,0 +1,10 @@
+resolver: conflict — no compatible set of versions found:
+  - dependency clash: a/x requires d/w but the chosen version cannot be reconciled
+  - dependency clash: b/y requires d/w but the chosen version cannot be reconciled
+
+derivation:
+  (1) Because your manifest requires d/w ^2.0 and a/x 1.0.0 requires d/w ^1.0,
+      a/x 1.0.0 is forbidden.
+  And because your manifest requires a/x ^1.0, every solution conflicts with (1).
+  And, because b/y 1.0.0 requires d/w ^1.0 and (1), b/y 1.0.0 is forbidden.
+  So, because your manifest requires b/y ^1.0, version solving failed.
