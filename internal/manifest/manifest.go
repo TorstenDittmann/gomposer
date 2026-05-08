@@ -31,6 +31,11 @@ type Manifest struct {
 	// either a single string or an array of strings per event; the custom
 	// decoder below normalizes both into []string.
 	Scripts map[string][]string `json:"-"`
+
+	// Extra holds arbitrary project-specific data from the "extra" key in
+	// composer.json. composer-go reads it for its own namespaced config
+	// (e.g., extra.composer-go.suppress-plugin-warnings).
+	Extra map[string]any `json:"extra,omitempty"`
 }
 
 // Repository is one entry from composer.json `repositories`. Fields beyond
