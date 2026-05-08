@@ -64,31 +64,46 @@ func New(cfg Config) (*Client, error) {
 	return &Client{baseURL: cfg.BaseURL, http: hc, parsed: pc}, nil
 }
 
-// Lookup implements registry.SourceLookup.
+// Lookup implements registry.SourceLookup. Packagist v2 splits a package's
+// metadata across two files: tagged releases in /p2/<name>.json and dev
+// branches in /p2/<name>~dev.json. We fetch both and merge — most packages
+// only have the first, so the ~dev variant is allowed to 404 silently.
 func (c *Client) Lookup(ctx context.Context, name string) (*registry.PackageMetadata, error) {
-	url := c.baseURL + "/p2/" + name + ".json"
-	body, err := c.http.Get(ctx, url)
+	stableBody, err := c.http.Get(ctx, c.baseURL+"/p2/"+name+".json")
 	if err != nil {
-		// httpcache returns an error containing the status code; map 404 -> ErrPackageNotFound.
-		// We use a string match because httpcache reports "unexpected status N".
 		if isNotFound(err) {
 			return nil, fmt.Errorf("%s: %w", name, registry.ErrPackageNotFound)
 		}
 		return nil, err
 	}
+	devBody, devErr := c.http.Get(ctx, c.baseURL+"/p2/"+name+"~dev.json")
+	if devErr != nil && !isNotFound(devErr) {
+		return nil, devErr
+	}
 
-	if v, ok, _ := c.parsed.Load(body); ok {
+	// Composite cache key: the parsed cache is keyed by hash of all source
+	// bytes, so concatenate stable + dev so a change in either invalidates.
+	composite := append(append([]byte(nil), stableBody...), devBody...)
+	if v, ok, _ := c.parsed.Load(composite); ok {
 		out := v
 		return &out, nil
 	}
 
-	md, err := decodeV2(name, body)
+	md, err := decodeV2(name, stableBody)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.parsed.Store(body, *md); err != nil {
-		// Cache failures are non-fatal.
-		_ = err
+	if len(devBody) > 0 {
+		devMd, err := decodeV2(name, devBody)
+		if err == nil {
+			md.Versions = append(md.Versions, devMd.Versions...)
+		}
+		// A decode error on the ~dev file is non-fatal; we still serve the
+		// stable versions. Errors here typically mean the file is empty or
+		// missing the package key.
+	}
+	if err := c.parsed.Store(composite, *md); err != nil {
+		_ = err // cache failures are non-fatal
 	}
 	return md, nil
 }
