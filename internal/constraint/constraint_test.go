@@ -375,3 +375,63 @@ func TestIsExplicitDevWithSlash(t *testing.T) {
 		}
 	}
 }
+
+func TestBranchAliasVariants(t *testing.T) {
+	parseCases := []struct {
+		input string
+		major int
+		minor int
+		isDev bool
+	}{
+		{"1.x-dev", 1, 0, true},
+		{"2.x-dev", 2, 0, true},
+		{"10.x-dev", 10, 0, true},
+		{"0.x-dev", 0, 0, true},
+		{"1.0.x-dev", 1, 0, true},
+		{"1.2.x-dev", 1, 2, true},
+		// Without -dev suffix Composer still aliases x-segments to dev.
+		{"1.x", 1, 0, true},
+		{"1.2.x", 1, 2, true},
+	}
+	for _, tc := range parseCases {
+		v, err := ParseVersion(tc.input)
+		if err != nil {
+			t.Errorf("ParseVersion(%q): %v", tc.input, err)
+			continue
+		}
+		if v.Major != tc.major {
+			t.Errorf("%s: Major = %d, want %d", tc.input, v.Major, tc.major)
+		}
+		if v.Minor != tc.minor {
+			t.Errorf("%s: Minor = %d, want %d", tc.input, v.Minor, tc.minor)
+		}
+		if (v.Stability == Dev) != tc.isDev {
+			t.Errorf("%s: Stability = %v, want Dev=%v", tc.input, v.Stability, tc.isDev)
+		}
+	}
+
+	// Caret/tilde matching against branch-alias versions.
+	matchCases := []struct {
+		constraint, version string
+		want                bool
+	}{
+		{"^1.0", "1.x-dev", true},
+		{"^1.0", "2.x-dev", false},
+		{"^2.0", "2.x-dev", true},
+		{"~1.2", "1.2.x-dev", true},
+		{"~1.2", "1.3.x-dev", true}, // ~1.2 = >=1.2 <2.0.0, so 1.3.x-dev is in range
+		{">=1.0", "1.x-dev", true},
+		{">=2.0", "1.x-dev", false},
+	}
+	for _, tc := range matchCases {
+		c, err := Parse(tc.constraint)
+		if err != nil {
+			t.Errorf("Parse(%q): %v", tc.constraint, err)
+			continue
+		}
+		v, _ := ParseVersion(tc.version)
+		if got := c.Satisfies(v); got != tc.want {
+			t.Errorf("%s in %s = %v, want %v", tc.version, tc.constraint, got, tc.want)
+		}
+	}
+}
