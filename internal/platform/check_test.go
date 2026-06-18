@@ -92,6 +92,13 @@ func TestIsPlatformReq(t *testing.T) {
 	cases := map[string]bool{
 		"php": true, "ext-json": true, "lib-curl": true,
 		"php-64bit": true, "vendor/pkg": false, "ext-": true,
+		// Package names whose vendor begins with a platform prefix must not
+		// be classified as platform reqs. The `/` is the discriminator —
+		// real platform reqs never contain it.
+		"php-http/discovery":      false,
+		"php-amqplib/php-amqplib": false,
+		"ext-something/pkg":       false,
+		"lib-foo/bar":             false,
 	}
 	for k, want := range cases {
 		if got := IsPlatformReq(k); got != want {

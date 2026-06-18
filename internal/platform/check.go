@@ -37,8 +37,14 @@ type Violation struct {
 
 // IsPlatformReq reports whether a require key denotes a platform req
 // (php / ext-* / lib-*) rather than a regular package name. The classifier
-// matches Composer's: any key starting with `php`, `ext-`, or `lib-`.
+// matches Composer's: any key starting with `php`, `ext-`, or `lib-`, with
+// the caveat that real platform reqs never contain `/`. A name like
+// `php-http/discovery` is a Composer package (vendor `php-http`), not the
+// PHP runtime.
 func IsPlatformReq(name string) bool {
+	if strings.ContainsRune(name, '/') {
+		return false
+	}
 	if name == "php" || strings.HasPrefix(name, "php-") {
 		return true
 	}
