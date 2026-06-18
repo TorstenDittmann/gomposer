@@ -89,6 +89,114 @@ func TestMaterializeWithoutWrapperDir(t *testing.T) {
 	}
 }
 
+// TestMaterializeSkipsWhenMarkerMatches asserts the warm-vendor fast path:
+// when a successful prior Materialize left a .composer-go-sha file at the
+// target root whose content matches pv.Dist.Sha, the second call must NOT
+// re-extract. We verify by removing the source zip from the store between
+// calls — if Materialize tried to extract again it would error; instead it
+// must return nil from the marker check alone.
+func TestMaterializeSkipsWhenMarkerMatches(t *testing.T) {
+	zipBytes := makeZip(t, map[string]string{
+		"composer.json": `{"name":"vendor/warm"}`,
+		"src/Foo.php":   "<?php",
+	})
+	sha := sha256Hex(zipBytes)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(zipBytes)
+	}))
+	defer srv.Close()
+
+	storeDir := t.TempDir()
+	st, _ := store.New(storeDir)
+	f := New(st, srv.Client())
+	pv := registry.PackageVersion{
+		Name: "vendor/warm", Version: "1.0.0",
+		Dist: registry.Dist{Type: "zip", URL: srv.URL + "/x.zip", Sha: sha},
+	}
+	if _, err := f.Fetch(context.Background(), pv); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "vendor", "vendor", "warm")
+
+	// First call: real extract + writes the marker.
+	if err := f.Materialize(context.Background(), pv, target); err != nil {
+		t.Fatalf("first Materialize: %v", err)
+	}
+	marker := filepath.Join(target, ".composer-go-sha")
+	if got, err := os.ReadFile(marker); err != nil {
+		t.Fatalf("marker missing after first Materialize: %v", err)
+	} else if string(got) != sha {
+		t.Fatalf("marker content = %q, want %q", got, sha)
+	}
+
+	// Kill the store entry so a real extract would fail.
+	if err := os.Remove(st.Path(sha)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second call: must skip via marker (the store is gone, so extracting
+	// would error; nil return proves the fast path ran).
+	if err := f.Materialize(context.Background(), pv, target); err != nil {
+		t.Errorf("second Materialize did not take the fast path: %v", err)
+	}
+}
+
+// TestMaterializeReExtractsOnShaChange asserts that an out-of-date marker
+// (different sha than the one we're materializing) does not short-circuit.
+// This guards the upgrade flow: when a package version bumps, the old
+// vendor contents must be replaced by the new zip.
+func TestMaterializeReExtractsOnShaChange(t *testing.T) {
+	oldZip := makeZip(t, map[string]string{"VERSION": "old"})
+	newZip := makeZip(t, map[string]string{"VERSION": "new"})
+	newSha := sha256Hex(newZip)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(newZip)
+	}))
+	defer srv.Close()
+
+	st, _ := store.New(t.TempDir())
+	f := New(st, srv.Client())
+
+	// Seed the store with the new zip so Fetch is a no-op.
+	pvNew := registry.PackageVersion{
+		Name: "vendor/upgrade", Version: "2.0.0",
+		Dist: registry.Dist{Type: "zip", URL: srv.URL + "/x.zip", Sha: newSha},
+	}
+	if _, err := f.Fetch(context.Background(), pvNew); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate the target as if a previous run installed the OLD version.
+	target := filepath.Join(t.TempDir(), "vendor", "vendor", "upgrade")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "VERSION"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, ".composer-go-sha"), []byte(sha256Hex(oldZip)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.Materialize(context.Background(), pvNew, target); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, "VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Errorf("target not refreshed: VERSION = %q, want %q", got, "new")
+	}
+	got, err = os.ReadFile(filepath.Join(target, ".composer-go-sha"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != newSha {
+		t.Errorf("marker not updated: got %q, want %q", got, newSha)
+	}
+}
+
 func TestMaterializeRejectsTraversal(t *testing.T) {
 	// Defense-in-depth: a malicious zip entry containing ".." must not escape.
 	var buf bytes.Buffer

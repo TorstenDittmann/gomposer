@@ -13,10 +13,20 @@ import (
 	"github.com/torstendittmann/composer-go/internal/registry"
 )
 
+// markerName is the per-package file we drop at the target root recording
+// the sha of the zip last successfully extracted there. On a warm re-run
+// we read it, compare against the locked sha, and skip the zip walk on
+// match. The leading dot keeps it out of most autoloader scans.
+const markerName = ".composer-go-sha"
+
 // Materialize expands the stored zip for pv into target. The target
 // directory is created if missing and pre-existing contents are
 // overwritten file-by-file (callers that want a clean directory should
 // remove it first).
+//
+// Warm-vendor fast path: if target/<markerName> already exists and its
+// contents equal pv.Dist.Sha, we return without opening the zip. The
+// marker is (re)written at the end of every successful real extract.
 //
 // Composer dists usually wrap their contents in a single top-level
 // directory whose name we cannot predict. We detect that case (every entry
@@ -30,6 +40,9 @@ func (f *Fetcher) Materialize(ctx context.Context, pv registry.PackageVersion, t
 	sha := pv.Dist.Sha
 	if sha == "" {
 		return fmt.Errorf("fetcher: %s: cannot materialize without sha (call Fetch first)", pv.Name)
+	}
+	if existing, err := os.ReadFile(filepath.Join(target, markerName)); err == nil && string(existing) == sha {
+		return nil
 	}
 	if !f.store.Has(sha) {
 		return fmt.Errorf("fetcher: %s: not in store (sha %s)", pv.Name, sha)
@@ -80,6 +93,9 @@ func (f *Fetcher) Materialize(ctx context.Context, pv registry.PackageVersion, t
 		if err := writeZipEntry(ze, dst); err != nil {
 			return fmt.Errorf("fetcher: %s: write %s: %w", pv.Name, rel, err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(target, markerName), []byte(sha), 0o644); err != nil {
+		return fmt.Errorf("fetcher: %s: write marker: %w", pv.Name, err)
 	}
 	return nil
 }
