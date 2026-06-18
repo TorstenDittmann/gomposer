@@ -1,5 +1,5 @@
 {
-    "name": "composer-go/test-fixture",
+    "name": "gomposer/test-fixture",
     "type": "library",
     "autoload": {
         "psr-4": {

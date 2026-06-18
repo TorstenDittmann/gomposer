@@ -1,5 +1,5 @@
 // Package embedded vendors Composer's ClassLoader.php and its LICENSE so
-// composer-go can drop them into vendor/composer/ at install time. The
+// gomposer can drop them into vendor/composer/ at install time. The
 // vendored files are MIT-licensed; see LICENSE for the full notice.
 //
 // Sourced from composer/composer @ commit 3a184c1744373e7d8602f0d9a985fb546d41f53d

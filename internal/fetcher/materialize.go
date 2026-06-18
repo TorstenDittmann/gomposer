@@ -10,14 +10,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // markerName is the per-package file we drop at the target root recording
 // the sha of the zip last successfully extracted there. On a warm re-run
 // we read it, compare against the locked sha, and skip the zip walk on
 // match. The leading dot keeps it out of most autoloader scans.
-const markerName = ".composer-go-sha"
+const markerName = ".gomposer-sha"
 
 // Materialize expands the stored zip for pv into target. The target
 // directory is created if missing and pre-existing contents are

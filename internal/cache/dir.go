@@ -9,15 +9,15 @@ import (
 	"runtime"
 )
 
-const dirName = "composer-go"
+const dirName = "gomposer"
 
-// Root returns the absolute path to the composer-go cache directory.
+// Root returns the absolute path to the gomposer cache directory.
 // It does NOT create the directory; callers create per-layer subdirs.
 //
 // Resolution order:
-//  1. $XDG_CACHE_HOME/composer-go (if set, regardless of OS)
-//  2. macOS: $HOME/Library/Caches/composer-go
-//  3. other: $HOME/.cache/composer-go
+//  1. $XDG_CACHE_HOME/gomposer (if set, regardless of OS)
+//  2. macOS: $HOME/Library/Caches/gomposer
+//  3. other: $HOME/.cache/gomposer
 func Root() (string, error) {
 	if x := os.Getenv("XDG_CACHE_HOME"); x != "" {
 		return filepath.Join(x, dirName), nil

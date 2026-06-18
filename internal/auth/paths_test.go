@@ -15,7 +15,7 @@ func TestDefaultPathsXDG(t *testing.T) {
 	if composer != filepath.Join("/home/u", ".composer", "auth.json") {
 		t.Errorf("composer = %q", composer)
 	}
-	if user != filepath.Join("/cfg", "composer-go", "auth.json") {
+	if user != filepath.Join("/cfg", "gomposer", "auth.json") {
 		t.Errorf("user = %q", user)
 	}
 }
@@ -27,7 +27,7 @@ func TestDefaultPathsXDGUnset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user != filepath.Join("/home/u", ".config", "composer-go", "auth.json") {
+	if user != filepath.Join("/home/u", ".config", "gomposer", "auth.json") {
 		t.Errorf("user = %q", user)
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Entry is one resolved package as the orchestrator hands it to the

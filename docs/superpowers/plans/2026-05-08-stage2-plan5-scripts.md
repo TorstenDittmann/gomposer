@@ -46,7 +46,7 @@ The dependency-level events (`pre-package-install`, `post-package-install`, etc.
 | `internal/scripts/scripts.go` | `Runner` type, `Run(ctx, event, opts) error`, classification (shell vs php-callable vs `@ref`), cycle detection |
 | `internal/scripts/exec.go` | Subprocess helpers: `runShell`, `runPHPCallable`. Encapsulate platform branching for stage-4 windows support |
 | `internal/scripts/scripts_test.go` | Unit tests using temp scripts that write sentinel files; cycle detection; redaction |
-| `internal/scripts/exec_test.go` | Subprocess tests gated on the host having `sh` (always true on darwin/linux); `php` tests gated on `COMPOSER_GO_TEST_PHP=1` |
+| `internal/scripts/exec_test.go` | Subprocess tests gated on the host having `sh` (always true on darwin/linux); `php` tests gated on `GOMPOSER_TEST_PHP=1` |
 | `internal/orchestrator/orchestrator.go` | Add `NoScripts bool` to `Options`; extend `Scripts ScriptsRunner` injection point |
 | `internal/orchestrator/pipeline.go` | Fire scripts at the six event boundaries; thread `manifest.Scripts` into the runner |
 | `internal/orchestrator/scripts_test.go` | Tests with a recording fake runner: assert events fire in order; assert `--no-scripts` skips |
@@ -192,7 +192,7 @@ import (
 )
 
 // Manifest is the parsed view of a composer.json file. Fields not yet
-// supported by composer-go are omitted; unknown fields in the input are
+// supported by gomposer are omitted; unknown fields in the input are
 // ignored silently for forward-compatibility with future Composer features.
 type Manifest struct {
 	Name             string            `json:"name"`
@@ -376,7 +376,7 @@ Create `internal/scripts/scripts.go`:
 //
 //   - Shell command: any string that does not match the other forms. Executed
 //     via `sh -c <cmd>` on Unix. Working dir = project root, env inherited
-//     plus COMPOSER_GO=1.
+//     plus GOMPOSER=1.
 //   - PHP-callable: a string matching `Vendor\Class::method` or
 //     `\Vendor\Class::method`. Executed via `php -r` after requiring
 //     vendor/autoload.php. The method receives no arguments in stage 2;
@@ -638,7 +638,7 @@ func TestRunShellSequenceFailFast(t *testing.T) {
 	}
 }
 
-func TestRunShellSetsComposerGoEnv(t *testing.T) {
+func TestRunShellSetsGomposerEnv(t *testing.T) {
 	skipIfNoSh(t)
 	dir := t.TempDir()
 	out := filepath.Join(dir, "env")
@@ -646,7 +646,7 @@ func TestRunShellSetsComposerGoEnv(t *testing.T) {
 	err := r.Run(context.Background(), EventPostInstall, Options{
 		ProjectDir: dir,
 		Scripts: map[string][]string{
-			"post-install-cmd": {`printf "%s" "$COMPOSER_GO" > ` + out},
+			"post-install-cmd": {`printf "%s" "$GOMPOSER" > ` + out},
 		},
 	})
 	if err != nil {
@@ -657,7 +657,7 @@ func TestRunShellSetsComposerGoEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(got) != "1" {
-		t.Errorf("COMPOSER_GO = %q, want 1", got)
+		t.Errorf("GOMPOSER = %q, want 1", got)
 	}
 }
 
@@ -762,8 +762,8 @@ func TestRunRefExecutesIndirect(t *testing.T) {
 }
 
 func TestRunPHPCallable(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_TEST_PHP") != "1" {
-		t.Skip("set COMPOSER_GO_TEST_PHP=1 with php on PATH to run")
+	if os.Getenv("GOMPOSER_TEST_PHP") != "1" {
+		t.Skip("set GOMPOSER_TEST_PHP=1 with php on PATH to run")
 	}
 	if _, err := exec.LookPath("php"); err != nil {
 		t.Skip("php not in PATH")
@@ -828,7 +828,7 @@ import (
 )
 
 // runShell executes body via `sh -c <body>` on Unix. Working dir = project
-// root, env = parent env + COMPOSER_GO=1. Stdout and stderr stream to the
+// root, env = parent env + GOMPOSER=1. Stdout and stderr stream to the
 // parent process so users see live output. A non-zero exit is returned as a
 // wrapped error containing the event name and the redacted body.
 //
@@ -842,7 +842,7 @@ func runShell(ctx context.Context, body string, opts Options) error {
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", body)
 	cmd.Dir = opts.ProjectDir
-	cmd.Env = append(os.Environ(), "COMPOSER_GO=1")
+	cmd.Env = append(os.Environ(), "GOMPOSER=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if opts.Verbose {
@@ -870,12 +870,12 @@ func runPHPCallable(ctx context.Context, class, method string, opts Options) err
 	// Build a minimal PHP bootstrap. We avoid heredocs so the entire program
 	// fits cleanly into a single argv element.
 	bootstrap := "" +
-		"if (!file_exists('" + autoload + "')) { fwrite(STDERR, \"composer-go: vendor/autoload.php missing\\n\"); exit(1); }" +
+		"if (!file_exists('" + autoload + "')) { fwrite(STDERR, \"gomposer: vendor/autoload.php missing\\n\"); exit(1); }" +
 		"require '" + autoload + "';" +
 		"call_user_func(['" + escapePHPString(class) + "', '" + escapePHPString(method) + "']);"
 	cmd := exec.CommandContext(ctx, "php", "-r", bootstrap)
 	cmd.Dir = opts.ProjectDir
-	cmd.Env = append(os.Environ(), "COMPOSER_GO=1")
+	cmd.Env = append(os.Environ(), "GOMPOSER=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	body := class + "::" + method
@@ -902,11 +902,11 @@ func escapePHPString(s string) string {
 
 Run: `go test ./internal/scripts/...`
 
-Expected: all PASS except `TestRunPHPCallable` which is gated on `COMPOSER_GO_TEST_PHP=1`.
+Expected: all PASS except `TestRunPHPCallable` which is gated on `GOMPOSER_TEST_PHP=1`.
 
 - [ ] **Step 5: PHP-gated run**
 
-Run: `COMPOSER_GO_TEST_PHP=1 go test ./internal/scripts/... -run TestRunPHPCallable`
+Run: `GOMPOSER_TEST_PHP=1 go test ./internal/scripts/... -run TestRunPHPCallable`
 
 Expected: PASS if `php` is installed locally; otherwise the test self-skips.
 
@@ -983,7 +983,7 @@ type ScriptsRunner interface {
 }
 ```
 
-Add the import: `"github.com/torstendittmann/composer-go/internal/scripts"`.
+Add the import: `"github.com/torstendittmann/gomposer/internal/scripts"`.
 
 - [ ] **Step 3: Pass flags through CLI**
 
@@ -1040,10 +1040,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/scripts"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/scripts"
 )
 
 // recordingRunner captures every event fired in order.
@@ -1195,8 +1195,8 @@ func TestPreInstallFailureAbortsPipeline(t *testing.T) {
 		t.Fatal("expected error from failing pre-install-cmd")
 	}
 	// The lockfile must NOT have been written; pipeline aborted.
-	if _, err := os.Stat(filepath.Join(dir, "composer-go.lock")); err == nil {
-		t.Error("composer-go.lock should not exist when pre-install fails")
+	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err == nil {
+		t.Error("gomposer.lock should not exist when pre-install fails")
 	}
 }
 
@@ -1219,7 +1219,7 @@ func TestEventWithNoEntriesIsNoop(t *testing.T) {
 	// the orchestrator chooses to invoke. Assert that at least nothing fails and no panics:
 	_ = rec.seen()
 	// The lockfile and a manifest with no scripts map both succeed.
-	if _, err := os.Stat(filepath.Join(dir, "composer-go.lock")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
 		t.Errorf("lockfile should exist: %v", err)
 	}
 	// Sanity: ensure nothing panicked accessing nil maps.
@@ -1319,7 +1319,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 }
 ```
 
-Also import `"github.com/torstendittmann/composer-go/internal/scripts"` at the top of `pipeline.go` if it isn't already.
+Also import `"github.com/torstendittmann/gomposer/internal/scripts"` at the top of `pipeline.go` if it isn't already.
 
 - [ ] **Step 4: Wire the real runner in `defaultDeps`**
 
@@ -1405,7 +1405,7 @@ This task confirms the end-to-end path: a manifest declaring `post-install-cmd` 
 - [ ] **Step 1: Build**
 
 ```bash
-go build -o composer-go ./cmd/composer-go
+go build -o gomposer ./cmd/gomposer
 ```
 
 - [ ] **Step 2: Smoke test with a script**
@@ -1414,7 +1414,7 @@ go build -o composer-go ./cmd/composer-go
 SMOKE=$(mktemp -d)
 cat > $SMOKE/composer.json <<'EOF'
 {
-  "name": "composer-go-smoke/scripts",
+  "name": "gomposer-smoke/scripts",
   "require": { "psr/log": "^3.0" },
   "scripts": {
     "post-install-cmd": [
@@ -1425,7 +1425,7 @@ cat > $SMOKE/composer.json <<'EOF'
   }
 }
 EOF
-COMPOSER_GO_LIVE_NETWORK=1 ./composer-go install --project $SMOKE --verbose
+GOMPOSER_LIVE_NETWORK=1 ./gomposer install --project $SMOKE --verbose
 ls $SMOKE/post-install-fired   # must exist
 ```
 
@@ -1438,8 +1438,8 @@ Expected:
 - [ ] **Step 3: Smoke test `--no-scripts`**
 
 ```bash
-rm -rf $SMOKE/vendor $SMOKE/post-install-fired $SMOKE/composer-go.lock
-COMPOSER_GO_LIVE_NETWORK=1 ./composer-go install --project $SMOKE --no-scripts
+rm -rf $SMOKE/vendor $SMOKE/post-install-fired $SMOKE/gomposer.lock
+GOMPOSER_LIVE_NETWORK=1 ./gomposer install --project $SMOKE --no-scripts
 ls $SMOKE/post-install-fired 2>/dev/null && echo FAIL || echo OK
 ```
 
@@ -1451,14 +1451,14 @@ Expected: `OK` printed (sentinel absent), and `vendor/` is still populated.
 SMOKE2=$(mktemp -d)
 cat > $SMOKE2/composer.json <<'EOF'
 {
-  "name": "composer-go-smoke/fail",
+  "name": "gomposer-smoke/fail",
   "require": { "psr/log": "^3.0" },
   "scripts": { "pre-install-cmd": "exit 7" }
 }
 EOF
-COMPOSER_GO_LIVE_NETWORK=1 ./composer-go install --project $SMOKE2
+GOMPOSER_LIVE_NETWORK=1 ./gomposer install --project $SMOKE2
 echo "exit code: $?"
-ls $SMOKE2/composer-go.lock 2>/dev/null && echo "FAIL: lock should not exist" || echo "OK: no lockfile"
+ls $SMOKE2/gomposer.lock 2>/dev/null && echo "FAIL: lock should not exist" || echo "OK: no lockfile"
 ```
 
 Expected: non-zero exit code, no lockfile, no `vendor/`.
@@ -1467,7 +1467,7 @@ Expected: non-zero exit code, no lockfile, no `vendor/`.
 
 ```bash
 go test ./...
-COMPOSER_GO_LIVE_NETWORK=1 go test ./...
+GOMPOSER_LIVE_NETWORK=1 go test ./...
 ```
 
 Expected: green.
@@ -1486,12 +1486,12 @@ git status   # should be clean
 
 - [ ] `manifest.Manifest.Scripts` parses both string and string-array bodies for the same event.
 - [ ] Six lifecycle events fire in the correct order for `install` (pre-install-cmd, pre-autoload-dump, post-autoload-dump, post-install-cmd) and `update` (pre-update-cmd, pre-autoload-dump, post-autoload-dump, post-update-cmd).
-- [ ] Shell scripts run via `sh -c`, get `COMPOSER_GO=1` in env, and execute with `cwd = projectDir`.
-- [ ] PHP-callable scripts (`Vendor\Class::method`) run via `php -r` after requiring `vendor/autoload.php`. Gated test passes with `COMPOSER_GO_TEST_PHP=1`.
+- [ ] Shell scripts run via `sh -c`, get `GOMPOSER=1` in env, and execute with `cwd = projectDir`.
+- [ ] PHP-callable scripts (`Vendor\Class::method`) run via `php -r` after requiring `vendor/autoload.php`. Gated test passes with `GOMPOSER_TEST_PHP=1`.
 - [ ] `@name` references resolve recursively with cycle detection (depth cap 32).
 - [ ] A failing script aborts the install/update with the event name and a redacted (<=100 char) body in the error message.
 - [ ] `--no-scripts` globally disables firing; the rest of the pipeline still runs.
-- [ ] `go test ./...` is green offline; live smoke (Task 7) is green with `COMPOSER_GO_LIVE_NETWORK=1`.
+- [ ] `go test ./...` is green offline; live smoke (Task 7) is green with `GOMPOSER_LIVE_NETWORK=1`.
 - [ ] No `Co-Authored-By: Claude` trailer appears in any commit produced by this plan.
 
 If any item fails, fix forward in a follow-up commit before declaring Plan 5 done. The dependency-level events (`pre-package-install`, `post-package-install`, etc.) and the synthetic `Composer\Script\Event` argument for PHP-callables remain deferred to a later plan in this stage.

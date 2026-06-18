@@ -27,15 +27,15 @@ func PrepareGitEnv(c Credentials) (env []string, cleanup func(), err error) {
 		return nil, cleanup, nil
 	}
 
-	dir, err := os.MkdirTemp("", "composer-go-askpass-")
+	dir, err := os.MkdirTemp("", "gomposer-askpass-")
 	if err != nil {
 		return nil, cleanup, err
 	}
 	scriptPath := filepath.Join(dir, "askpass.sh")
 	const tmpl = `#!/bin/sh
 case "$1" in
-  Username*) printf '%%s' "${COMPOSER_GO_GIT_USER:-x-access-token}" ;;
-  *)         printf '%%s' "$COMPOSER_GO_GIT_TOKEN" ;;
+  Username*) printf '%%s' "${GOMPOSER_GIT_USER:-x-access-token}" ;;
+  *)         printf '%%s' "$GOMPOSER_GIT_TOKEN" ;;
 esac
 `
 	if err := os.WriteFile(scriptPath, []byte(fmt.Sprintf(tmpl)), 0o700); err != nil {
@@ -47,8 +47,8 @@ esac
 	env = []string{
 		"GIT_ASKPASS=" + scriptPath,
 		"GIT_TERMINAL_PROMPT=0",
-		"COMPOSER_GO_GIT_TOKEN=" + token,
-		"COMPOSER_GO_GIT_USER=" + user,
+		"GOMPOSER_GIT_TOKEN=" + token,
+		"GOMPOSER_GIT_USER=" + user,
 	}
 	return env, cleanup, nil
 }

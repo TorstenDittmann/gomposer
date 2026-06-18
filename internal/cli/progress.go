@@ -7,7 +7,7 @@
 //     warnings via charmbracelet/log; the noop progress purposely adds
 //     nothing on top.
 //   - ttyProgress: ANSI in-place redraws. A throttled goroutine rewrites a
-//     single status line ("composer-go: fetching 12/47 [====   ] symfony/console v6.4.5")
+//     single status line ("gomposer: fetching 12/47 [====   ] symfony/console v6.4.5")
 //     at most every redrawInterval. After each phase completes, it prints
 //     a final summary line. After Done(), it prints the wall-time summary.
 //
@@ -146,12 +146,12 @@ func (p *ttyProgress) endPhase(verb string) {
 	total := p.total
 	p.phase = ""
 	p.mu.Unlock()
-	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: %s %d packages\n", verb, total)
+	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d packages\n", verb, total)
 }
 
 func (p *ttyProgress) Done(packageCount int) {
 	elapsed := time.Since(p.startTime).Round(10 * time.Millisecond)
-	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: installed %d package%s in %s\n",
+	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: installed %d package%s in %s\n",
 		packageCount, plural(packageCount), elapsed)
 }
 
@@ -172,7 +172,7 @@ func (p *ttyProgress) maybeDraw(force bool) {
 		cur = p.total
 	}
 	bar := renderBar(cur, p.total)
-	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: %s %d/%d  %s  %s",
+	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d/%d  %s  %s",
 		p.phase, cur, p.total, bar, p.label)
 	p.lastDraw = now
 }

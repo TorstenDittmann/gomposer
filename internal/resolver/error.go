@@ -3,8 +3,8 @@ package resolver
 import (
 	"fmt"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Result is the resolver's output: one entry per chosen package.

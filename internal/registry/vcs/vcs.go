@@ -37,9 +37,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/torstendittmann/composer-go/internal/cache/parsedcache"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/cache/parsedcache"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Config configures a single VCS-backed lookup. One Config corresponds to

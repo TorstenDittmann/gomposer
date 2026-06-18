@@ -35,7 +35,7 @@ func TestAskpassEmitsToken(t *testing.T) {
 
 	// Run the script with the token in env; it should print it to stdout.
 	cmd := exec.Command(askpass, "Password for 'https://github.com':")
-	cmd.Env = append(os.Environ(), "COMPOSER_GO_GIT_TOKEN=ghp_TEST")
+	cmd.Env = append(os.Environ(), "GOMPOSER_GIT_TOKEN=ghp_TEST")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)

@@ -4,7 +4,7 @@
 
 **Goal:** Replace the bullet-list `ConflictError.Error()` rendering with a structured PubGrub derivation report — the human-readable "Because A and B, X. So Y." chain that Cargo, uv, and Dart pub all settle on. The new renderer walks the conflict tree depth-first, generates one prose line per `Incompatibility` keyed off its `Cause`, deduplicates repeated derivations, indents nested causes, and wraps long lines at 100 columns. The existing `collectLeafCauses` summary stays as a one-line headline so users see the bottom line before the full derivation.
 
-**Why this is necessary.** The current `ConflictError.Error()` lists leaf causes ("dependency clash: a requires b...", "no published versions of c...") with no relationship between them. Users see _what_ leaves contradict but not _how_ they reached the contradiction; on a 3+ package transitive chain the output is actively misleading because the depender / dependee labelling collapses two different reasons into the same string. The PubGrub derivation format ("Because A 1.0.0 requires B ^1.0 and B 1.5.0 requires C ^2.0, A 1.0.0 requires C ^2.0. So, because root requires A 1.0.0 and C 1.0.0, version solving failed.") is the de-facto standard now and is what users have learned to expect from package managers. Adopting it brings composer-go up to par.
+**Why this is necessary.** The current `ConflictError.Error()` lists leaf causes ("dependency clash: a requires b...", "no published versions of c...") with no relationship between them. Users see _what_ leaves contradict but not _how_ they reached the contradiction; on a 3+ package transitive chain the output is actively misleading because the depender / dependee labelling collapses two different reasons into the same string. The PubGrub derivation format ("Because A 1.0.0 requires B ^1.0 and B 1.5.0 requires C ^2.0, A 1.0.0 requires C ^2.0. So, because root requires A 1.0.0 and C 1.0.0, version solving failed.") is the de-facto standard now and is what users have learned to expect from package managers. Adopting it brings gomposer up to par.
 
 **Architecture:**
 
@@ -60,7 +60,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // loadFixture reads testdata/expected/<name>.txt and trims one trailing newline
@@ -1032,12 +1032,12 @@ Before declaring the plan complete, run a real failing install and read the outp
 
 **Files:**
 - No source changes expected.
-- Optionally: `docs/superpowers/specs/2026-05-07-composer-go-design.md` (add one paragraph if missing, otherwise skip).
+- Optionally: `docs/superpowers/specs/2026-05-07-gomposer-design.md` (add one paragraph if missing, otherwise skip).
 
 - [ ] **Step 1: Build and exercise**
 
 ```bash
-go build -o composer-go ./cmd/composer-go
+go build -o gomposer ./cmd/gomposer
 mkdir -p /tmp/conflict-demo && cd /tmp/conflict-demo
 cat > composer.json <<'JSON'
 {
@@ -1048,7 +1048,7 @@ cat > composer.json <<'JSON'
   }
 }
 JSON
-./composer-go install --project /tmp/conflict-demo 2>&1 | head -50
+./gomposer install --project /tmp/conflict-demo 2>&1 | head -50
 ```
 
 Expected: a `resolver: conflict —` headline, then a blank line, then a `derivation:` block of indented "Because … and …" sentences ending in "version solving failed.". No `TODO(conflict)` strings, no naked `&{` printouts of `Incompatibility`, no over-100-column lines (eyeball with `awk '{ if (length > 100) print NR": "length" cols" }'`).
@@ -1086,6 +1086,6 @@ git commit -m "docs(spec): note structured PubGrub derivation in error output"
 - [ ] The terminal `IsFailure()` node renders with a `So, because …, version solving failed.` sentence.
 - [ ] `TestSolveConflictMessageReadsAsDerivation` runs the real solver and asserts the rendered string contains the expected anchors and no `TODO(conflict)` placeholders.
 - [ ] `go test ./...` is green.
-- [ ] Manual `composer-go install` against a constructed conflict produces output that reads naturally to a human and respects the 100-col wrap.
+- [ ] Manual `gomposer install` against a constructed conflict produces output that reads naturally to a human and respects the 100-col wrap.
 
 If any item fails, fix forward — do not loosen the fixtures to make tests pass; the fixtures are the contract.

@@ -5,9 +5,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 type countingLookup struct {

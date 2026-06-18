@@ -39,7 +39,7 @@ func ParseScenario(s string) (Scenario, error) {
 type Tool string
 
 const (
-	ToolComposerGo Tool = "composer-go"
+	ToolGomposer Tool = "gomposer"
 	ToolComposer   Tool = "composer"
 )
 
@@ -48,7 +48,7 @@ type Plan struct {
 	Fixtures       []Fixture
 	Scenarios      []Scenario
 	Runs           int
-	ComposerGoPath string
+	GomposerPath string
 	ComposerPath   string
 }
 
@@ -93,7 +93,7 @@ func median(d []time.Duration) time.Duration {
 func prepareScenario(s Scenario, dir string) error {
 	switch s {
 	case ScenarioCold:
-		for _, rel := range []string{"vendor", "composer.lock", "composer-go.lock"} {
+		for _, rel := range []string{"vendor", "composer.lock", "gomposer.lock"} {
 			if err := os.RemoveAll(filepath.Join(dir, rel)); err != nil {
 				return fmt.Errorf("bench: prepare cold: rm %s: %w", rel, err)
 			}
@@ -144,7 +144,7 @@ func Run(ctx context.Context, plan Plan, runner CmdRunner) ([]Result, error) {
 		tool Tool
 		bin  string
 	}{
-		{ToolComposerGo, plan.ComposerGoPath},
+		{ToolGomposer, plan.GomposerPath},
 		{ToolComposer, plan.ComposerPath},
 	}
 
@@ -164,7 +164,7 @@ func Run(ctx context.Context, plan Plan, runner CmdRunner) ([]Result, error) {
 }
 
 func runOne(ctx context.Context, runner CmdRunner, fx Fixture, sc Scenario, tool Tool, bin string, runs int) (Result, error) {
-	work, err := os.MkdirTemp("", "composer-go-bench-")
+	work, err := os.MkdirTemp("", "gomposer-bench-")
 	if err != nil {
 		return Result{}, fmt.Errorf("mktemp: %w", err)
 	}

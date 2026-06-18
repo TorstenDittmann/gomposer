@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/torstendittmann/composer-go/internal/cache"
-	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/cache"
+	"github.com/torstendittmann/gomposer/internal/lock"
 )
 
 // computeCacheKey is the resolution-result cache key. It MUST be:

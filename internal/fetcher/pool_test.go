@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 func TestFetchAllParallel(t *testing.T) {

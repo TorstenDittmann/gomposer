@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 func TestProbeReturnsCachedResult(t *testing.T) {

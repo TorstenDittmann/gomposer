@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Aggregator implements registry.SourceLookup over an ordered list of

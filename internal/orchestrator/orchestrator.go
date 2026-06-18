@@ -1,5 +1,5 @@
 // Package orchestrator drives the full install/update pipeline. It is the
-// only package in composer-go that knows the order of phases:
+// only package in gomposer that knows the order of phases:
 //
 //	read manifest -> [maybe read lock] -> [maybe consult resolution cache] ->
 //	resolve -> fetch -> materialize vendor/ -> generate autoloader ->
@@ -26,9 +26,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/scripts"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/scripts"
 )
 
 // ScriptsRunner runs lifecycle scripts. The default implementation executes

@@ -120,7 +120,7 @@ Replace `internal/platform/platform.go`:
 //
 // The snapshot is captured by Probe(), which shells out to `php -r` once
 // per process and parses the resulting JSON. Subsequent calls return the
-// cached result — PHP versions don't change while a single composer-go
+// cached result — PHP versions don't change while a single gomposer
 // run is in progress.
 //
 // Cross-process: NOT cached on disk. PHP versions can change with OS
@@ -138,7 +138,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // Platform is a structured snapshot of the runtime PHP.
@@ -255,7 +255,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // probeScript is a single-line PHP program that prints a JSON document of
@@ -360,7 +360,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 func TestProbeReturnsCachedResult(t *testing.T) {
@@ -495,7 +495,7 @@ package platform
 import (
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 func newTestPlatform(t *testing.T) *Platform {
@@ -609,7 +609,7 @@ package platform
 import (
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // ViolationKind classifies why a platform req was not satisfied.
@@ -621,7 +621,7 @@ const (
 	ViolationVersion ViolationKind = iota
 	// ViolationMissing: the req is for an extension that is not loaded.
 	ViolationMissing
-	// ViolationLibIgnored: the req is `lib-*`, which composer-go does not
+	// ViolationLibIgnored: the req is `lib-*`, which gomposer does not
 	// implement. Not a real failure; surfaced once per run as info.
 	ViolationLibIgnored
 	// ViolationUnparseable: the constraint string itself failed to parse.
@@ -788,7 +788,7 @@ Modify `internal/resolver/solve.go` (the `Input` struct and `Solve`):
 ```go
 import (
 	// ... existing imports ...
-	"github.com/torstendittmann/composer-go/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/platform"
 )
 
 // Input is everything Solve needs.
@@ -986,7 +986,7 @@ Append to `internal/lock/lock_test.go`:
 func TestLockFileRoundTripsWarnings(t *testing.T) {
 	in := &lock.File{
 		SchemaVersion: lock.SchemaVersion,
-		Generator:     lock.Generator{Name: "composer-go", Version: "test"},
+		Generator:     lock.Generator{Name: "gomposer", Version: "test"},
 		Warnings:      []string{"acme/x: php ^7.4 not satisfied (have php 8.2.14)"},
 	}
 	enc, err := in.Encode()
@@ -1021,7 +1021,7 @@ In `internal/lock/lock.go`, add to the `File` struct:
 //
 // We store them in the lockfile (NOT only in the resolution-result
 // cache) because the JSON lockfile is the canonical source of truth a
-// user can inspect, and a future `composer-go check` should be able to
+// user can inspect, and a future `gomposer check` should be able to
 // re-print them without re-resolving.
 Warnings []string `json:"warnings,omitempty"`
 ```
@@ -1088,7 +1088,7 @@ func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: read manifest bytes: %w", err)
 	}
-	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "composer-go.lock"))
+	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "gomposer.lock"))
 
 	ignore := buildIgnoreSet(opts.IgnorePlatformReqs)
 
@@ -1176,7 +1176,7 @@ After the resolver returns its `Result`, walk every chosen package's `require` m
 - `--no-dev`: any violation is a fatal error (return after printing all of them).
 - `--quiet`: print nothing to stderr; warnings still land in the lockfile.
 
-`lib-*` violations are coalesced into a single info-level message: `"composer-go: ignoring lib-* platform requirements (not implemented)"`.
+`lib-*` violations are coalesced into a single info-level message: `"gomposer: ignoring lib-* platform requirements (not implemented)"`.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1190,9 +1190,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/platform"
 )
 
 func mustVer(t *testing.T, s string) constraint.Version {
@@ -1340,7 +1340,7 @@ func evaluatePlatformWarnings(
 			warnings = append(warnings, line)
 			hardFails = append(hardFails, line)
 			if !quiet {
-				fmt.Fprintln(stderr, "composer-go: "+line)
+				fmt.Fprintln(stderr, "gomposer: "+line)
 			}
 		}
 	}
@@ -1348,7 +1348,7 @@ func evaluatePlatformWarnings(
 		const libLine = "ignoring lib-* platform requirements (not implemented)"
 		warnings = append(warnings, libLine)
 		if !quiet {
-			fmt.Fprintln(stderr, "composer-go: "+libLine)
+			fmt.Fprintln(stderr, "gomposer: "+libLine)
 		}
 	}
 	if noDev && len(hardFails) > 0 {
@@ -1394,7 +1394,7 @@ if len(warnings) > 0 {
 	// already has warnings, re-emit them now.
 	if !opts.Quiet {
 		for _, w := range lockFile.Warnings {
-			fmt.Fprintln(os.Stderr, "composer-go: "+w)
+			fmt.Fprintln(os.Stderr, "gomposer: "+w)
 		}
 	}
 }
@@ -1440,7 +1440,7 @@ var (
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "composer-go",
+		Use:           "gomposer",
 		Short:         "A fast Go-based PHP package manager",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -1502,8 +1502,8 @@ func TestInstallAcceptsIgnorePlatformReqRepeated(t *testing.T) {
 - [ ] **Step 4: Build and smoke**
 
 ```bash
-go build ./cmd/composer-go
-./composer-go install --help | grep ignore-platform
+go build ./cmd/gomposer
+./gomposer install --help | grep ignore-platform
 ```
 
 Expected: help text shows both flags.
@@ -1566,7 +1566,7 @@ func TestInstallEmitsPlatformWarningsAndPersistsOnLock(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	data, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
 	if err != nil {
 		t.Fatalf("read lock: %v", err)
 	}
@@ -1629,7 +1629,7 @@ func TestInstallIgnorePlatformReqSuppresses(t *testing.T) {
 	if err := Install(context.Background(), opts); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	data, _ := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
 	f, _ := lock.Decode(data)
 	for _, w := range f.Warnings {
 		if strings.Contains(w, "acme/leaf") {
@@ -1643,7 +1643,7 @@ Add a small helper in the same file so tests can install a fake Platform without
 
 ```go
 import (
-	platformpkg "github.com/torstendittmann/composer-go/internal/platform"
+	platformpkg "github.com/torstendittmann/gomposer/internal/platform"
 )
 
 // resetPlatformProbeForTest installs a fake PHP version (with a generic
@@ -1724,14 +1724,14 @@ Run the full test suite, build the binary, and confirm the documented behaviour 
 - [ ] **Step 1: Build**
 
 ```bash
-go build -o composer-go ./cmd/composer-go
+go build -o gomposer ./cmd/gomposer
 ```
 
 - [ ] **Step 2: Probe smoke**
 
 ```bash
 php -r 'echo PHP_VERSION;'
-./composer-go install --project /tmp/no-such-dir 2>&1 | head -n5
+./gomposer install --project /tmp/no-such-dir 2>&1 | head -n5
 ```
 
 Expected: clear error mentioning the missing manifest. The probe itself was attempted.
@@ -1741,19 +1741,19 @@ Expected: clear error mentioning the missing manifest. The probe itself was atte
 Pick a project whose top-level require is e.g. `php: ^7.4` and run on a PHP 8 machine:
 
 ```bash
-./composer-go install --project ./fixtures/php74-only 2>&1 | grep "composer-go:"
+./gomposer install --project ./fixtures/php74-only 2>&1 | grep "gomposer:"
 ```
 
 Expected: warning lines naming the offending package and the failed req.
 
 ```bash
-./composer-go install --project ./fixtures/php74-only --no-dev
+./gomposer install --project ./fixtures/php74-only --no-dev
 ```
 
 Expected: non-zero exit; same warnings emitted before the error line.
 
 ```bash
-./composer-go install --project ./fixtures/php74-only --no-dev --ignore-platform-req=php
+./gomposer install --project ./fixtures/php74-only --no-dev --ignore-platform-req=php
 ```
 
 Expected: exit 0.
@@ -1763,7 +1763,7 @@ Expected: exit 0.
 If you can craft a fixture whose require map contains `lib-curl: '*'`:
 
 ```bash
-./composer-go install --project ./fixtures/lib-curl-fixture
+./gomposer install --project ./fixtures/lib-curl-fixture
 ```
 
 Expected: exactly one stderr line containing `ignoring lib-* platform requirements`.

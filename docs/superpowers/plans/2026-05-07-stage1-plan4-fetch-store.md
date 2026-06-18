@@ -55,7 +55,7 @@
 Run:
 
 ```bash
-cd /Users/torstendittmann/Documents/skunk/composer-go
+cd /Users/torstendittmann/Documents/skunk/gomposer
 go get golang.org/x/sys@latest
 go get golang.org/x/sync@latest
 ```
@@ -80,14 +80,14 @@ git commit -m "chore: add golang.org/x/{sys,sync} for fetcher and store"
 ## Task 2: Store — `Has` / `Path` / round-trip
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/store.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/store_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/store.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/store_test.go`
 
 The store is the simplest piece: a directory with one file per sha256. Tests can drive it with `bytes.Reader`; no HTTP needed yet.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/store_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/store_test.go`:
 
 ```go
 package store
@@ -179,7 +179,7 @@ Expected: build error (`undefined: New`, `undefined: Store`).
 
 - [ ] **Step 3: Implement the store**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/store.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/store.go`:
 
 ```go
 // Package store is a content-addressed blob store. It does not understand
@@ -300,14 +300,14 @@ git commit -m "feat(store): content-addressed blob store with atomic Put"
 ## Task 3: Fetcher — happy path against an `httptest.Server`
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/fetcher.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/fetcher_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/fetcher.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/fetcher_test.go`
 
 The fetcher is the only piece in this plan that talks HTTP. We test it with an `httptest.Server` that serves a zip generated in-memory at request time.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/fetcher_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/fetcher_test.go`:
 
 ```go
 package fetcher
@@ -324,8 +324,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 // makeZip returns the bytes of a zip containing the given files (path -> contents).
@@ -480,7 +480,7 @@ Expected: build error (`undefined: New`, `undefined: Fetcher`).
 
 - [ ] **Step 3: Implement the fetcher**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/fetcher.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/fetcher.go`:
 
 ```go
 // Package fetcher downloads package zips, verifies them against the
@@ -504,8 +504,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 // Fetcher coordinates downloads into a store. It is safe for concurrent use.
@@ -629,14 +629,14 @@ git commit -m "feat(fetcher): pipelined download + sha-verified store insert"
 ## Task 4: Materialize — common dispatch + zip extraction
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_test.go`
 
 `Materialize` reads a stored zip and writes its contents into a target directory. Composer dists usually wrap the package contents in a single top-level directory (e.g. `Seldaek-monolog-abc123/`); we strip exactly one path component when present.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_test.go`:
 
 ```go
 package fetcher
@@ -652,8 +652,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 func TestMaterializeStripsTopLevelDir(t *testing.T) {
@@ -773,7 +773,7 @@ Expected: build error (`undefined: Materialize`).
 
 - [ ] **Step 3: Implement materialize**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize.go`:
 
 ```go
 package fetcher
@@ -789,7 +789,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Materialize expands the stored zip for pv into target. The target
@@ -938,15 +938,15 @@ git commit -m "feat(fetcher): zip materialization with prefix-stripping and trav
 ## Task 5: Reflink fast paths (build-tag split)
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_darwin.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_linux.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_other.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_darwin.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_linux.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_other.go`
 
 The fetcher's per-file write today goes through `io.Copy`. This task introduces `cloneFile(src, dst)` that tries `clonefile(2)` on macOS, `FICLONE` on Linux, and falls through to `errFallthrough` on every other platform. The function is wired into `writeZipEntry` only when the source already exists as a real file on disk — i.e. for "rematerialize from a different vendor dir" use cases that arrive in stage 3. For now we expose the helpers and exercise them from a platform-gated test, so plan 5's orchestrator can call them.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_test.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_test.go`:
 
 ```go
 func TestCloneFileFallthroughChain(t *testing.T) {
@@ -1004,7 +1004,7 @@ Expected: build error (`undefined: CloneOrCopy`).
 
 - [ ] **Step 3: Add the platform helpers**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_darwin.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_darwin.go`:
 
 ```go
 //go:build darwin
@@ -1048,7 +1048,7 @@ func CloneOrCopy(src, dst string) error {
 }
 ```
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_linux.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_linux.go`:
 
 ```go
 //go:build linux
@@ -1109,7 +1109,7 @@ func isReflinkUnsupported(err error) bool {
 }
 ```
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize_other.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize_other.go`:
 
 ```go
 //go:build !darwin && !linux
@@ -1128,7 +1128,7 @@ func CloneOrCopy(src, dst string) error {
 }
 ```
 
-Append the shared helper to `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/materialize.go`:
+Append the shared helper to `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/materialize.go`:
 
 ```go
 // copyFileBytes is the universal-fallback step of CloneOrCopy. It is
@@ -1176,14 +1176,14 @@ git commit -m "feat(fetcher): platform-specific CloneOrCopy with reflink/hardlin
 ## Task 6: Bounded concurrent batch fetch + extract
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/pool.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/pool_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/pool.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/pool_test.go`
 
 The orchestrator (plan 6) will pass us a slice of `registry.PackageVersion` and a `vendor/` root. We expose two helpers — `FetchAll` and `MaterializeAll` — both backed by `errgroup` with `SetLimit(runtime.NumCPU())`. They are independent so the orchestrator can begin extracting any package whose download has completed without waiting for the slowest download.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/pool_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/pool_test.go`:
 
 ```go
 package fetcher
@@ -1196,8 +1196,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 func TestFetchAllParallel(t *testing.T) {
@@ -1298,7 +1298,7 @@ Expected: build error (`undefined: FetchAll`, `undefined: MaterializeAll`).
 
 - [ ] **Step 3: Implement the pool**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/pool.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/pool.go`:
 
 ```go
 package fetcher
@@ -1311,7 +1311,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // FetchAll downloads every pv in parallel with at most `limit` requests in
@@ -1381,7 +1381,7 @@ git commit -m "feat(fetcher): bounded errgroup pool for parallel fetch and mater
 ## Task 7: Cancellation propagation smoke test
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/fetcher/pool_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/fetcher/pool_test.go`
 
 A regression guard: a cancelled context must abort in-flight downloads promptly.
 
@@ -1428,19 +1428,19 @@ git commit -m "test(fetcher): assert FetchAll honours context cancellation"
 ## Task 8: Wire the store into the project cache layout
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/layout.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/store_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/layout.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/store_test.go`
 
-The spec says the store defaults to `<project>/.composer-go/store` so reflinks land on the same filesystem as `vendor/`. We expose a single helper that returns the conventional path and let plan 6 wire it up. We also keep `New(dir)` flexible for tests and for users who explicitly point at a shared cache.
+The spec says the store defaults to `<project>/.gomposer/store` so reflinks land on the same filesystem as `vendor/`. We expose a single helper that returns the conventional path and let plan 6 wire it up. We also keep `New(dir)` flexible for tests and for users who explicitly point at a shared cache.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/store_test.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/store_test.go`:
 
 ```go
 func TestProjectStoreDir(t *testing.T) {
 	got := ProjectStoreDir("/work/proj")
-	want := filepath.Join("/work/proj", ".composer-go", "store")
+	want := filepath.Join("/work/proj", ".gomposer", "store")
 	if got != want {
 		t.Errorf("ProjectStoreDir = %q, want %q", got, want)
 	}
@@ -1455,7 +1455,7 @@ Expected: build error (`undefined: ProjectStoreDir`).
 
 - [ ] **Step 3: Implement layout**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/store/layout.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/store/layout.go`:
 
 ```go
 package store
@@ -1463,14 +1463,14 @@ package store
 import "path/filepath"
 
 // ProjectStoreDir returns the conventional store path for a project rooted
-// at projectDir. Co-locating the store under .composer-go/ keeps it on the
+// at projectDir. Co-locating the store under .gomposer/ keeps it on the
 // same filesystem as vendor/, which is a precondition for reflink and
 // hardlink to succeed.
 //
 // Users who want a shared cache across projects can pass an explicit path
 // to New() instead.
 func ProjectStoreDir(projectDir string) string {
-	return filepath.Join(projectDir, ".composer-go", "store")
+	return filepath.Join(projectDir, ".gomposer", "store")
 }
 ```
 
@@ -1494,7 +1494,7 @@ git commit -m "feat(store): ProjectStoreDir helper for per-project store layout"
 After all tasks:
 
 - `go test ./...` is green on darwin and linux. On other platforms, only the platform-gated reflink test is skipped.
-- `go build ./cmd/composer-go` still produces a binary; nothing in `cmd/` was modified by this plan.
+- `go build ./cmd/gomposer` still produces a binary; nothing in `cmd/` was modified by this plan.
 - A small benchmark sanity check (manual, not committed): create a 5-package fixture set with `httptest.Server`, run `FetchAll` with `limit=4` on a warm store, and confirm zero network hits and zero new files in the store dir.
 - Public surface stable for plan 6 (orchestrator):
   - `store.New(root string) (*store.Store, error)`, `(*Store).Has`, `(*Store).Put`, `(*Store).OpenReader`, `(*Store).Path`, `store.ProjectStoreDir`.

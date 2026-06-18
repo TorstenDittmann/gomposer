@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 func TestInspectDetectsComposerPlugin(t *testing.T) {
@@ -70,7 +70,7 @@ func TestInspectSuppressedByManifestExtra(t *testing.T) {
 		{Name: "phpstan/extension-installer", Version: "1.4.0", Type: "composer-plugin"},
 	}}
 	m := &manifest.Manifest{Extra: map[string]any{
-		"composer-go": map[string]any{
+		"gomposer": map[string]any{
 			"suppress-plugin-warnings": true,
 		},
 	}}
@@ -86,7 +86,7 @@ func TestInspectSuppressionIgnoresOtherTruthyValues(t *testing.T) {
 		{Name: "phpstan/extension-installer", Type: "composer-plugin"},
 	}}
 	m := &manifest.Manifest{Extra: map[string]any{
-		"composer-go": map[string]any{"suppress-plugin-warnings": "true"},
+		"gomposer": map[string]any{"suppress-plugin-warnings": "true"},
 	}}
 	if got := Inspect(f, m); len(got) != 1 {
 		t.Errorf("string \"true\" should NOT suppress; got %d warnings", len(got))

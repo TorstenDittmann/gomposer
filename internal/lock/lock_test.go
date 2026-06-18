@@ -8,7 +8,7 @@ import (
 func TestRoundTrip(t *testing.T) {
 	in := &File{
 		SchemaVersion:       1,
-		Generator:           Generator{Name: "composer-go", Version: "0.0.0-test"},
+		Generator:           Generator{Name: "gomposer", Version: "0.0.0-test"},
 		ManifestContentHash: "sha256:abc",
 		PlatformFingerprint: "php-8.2.0;ext-mbstring",
 		Stability:           Stability{MinimumStability: "stable", PreferStable: true},
@@ -50,7 +50,7 @@ func TestRoundTrip(t *testing.T) {
 func TestPackageTypeRoundTrips(t *testing.T) {
 	in := &File{
 		SchemaVersion: SchemaVersion,
-		Generator:     Generator{Name: "composer-go", Version: "0.1.0"},
+		Generator:     Generator{Name: "gomposer", Version: "0.1.0"},
 		Packages: []Package{
 			{Name: "composer/installers", Version: "2.3.0", Type: "composer-installer"},
 			{Name: "psr/log", Version: "3.0.0", Type: "library"},
@@ -80,7 +80,7 @@ func TestDecodeRejectsUnknownSchema(t *testing.T) {
 func TestLockFileRoundTripsWarnings(t *testing.T) {
 	in := &File{
 		SchemaVersion: SchemaVersion,
-		Generator:     Generator{Name: "composer-go", Version: "test"},
+		Generator:     Generator{Name: "gomposer", Version: "test"},
 		Warnings:      []string{"acme/x: php ^7.4 not satisfied (have php 8.2.14)"},
 	}
 	enc, err := in.Encode()

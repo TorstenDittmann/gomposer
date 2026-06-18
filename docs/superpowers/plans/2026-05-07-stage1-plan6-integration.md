@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Wire Plans 1–5 into a single working pipeline. End-to-end: read `composer.json` → check resolution-result cache → resolve via Packagist → fetch zips concurrently → materialize `vendor/` from the content-addressed store → generate the autoloader → write `composer-go.lock`. Implements both `install` (use existing lock if present) and `update` (force re-resolve). After this plan, `composer-go install` on a real Packagist project produces a working `vendor/` and a warm-cache repeat install completes in <100ms.
+**Goal:** Wire Plans 1–5 into a single working pipeline. End-to-end: read `composer.json` → check resolution-result cache → resolve via Packagist → fetch zips concurrently → materialize `vendor/` from the content-addressed store → generate the autoloader → write `gomposer.lock`. Implements both `install` (use existing lock if present) and `update` (force re-resolve). After this plan, `gomposer install` on a real Packagist project produces a working `vendor/` and a warm-cache repeat install completes in <100ms.
 
 **Architecture:**
 
@@ -36,7 +36,7 @@ If any of those packages export different names, adjust the orchestrator wiring;
 | `internal/orchestrator/pipeline.go` | Internal phase functions (resolve, fetch, materialize, autoload, write-lock) |
 | `internal/orchestrator/cachekey.go` | Resolution-result cache key derivation + read/write |
 | `internal/orchestrator/orchestrator_test.go` | Unit tests with fake source / fake fetcher |
-| `internal/orchestrator/live_test.go` | End-to-end live test gated on `COMPOSER_GO_LIVE_NETWORK=1` |
+| `internal/orchestrator/live_test.go` | End-to-end live test gated on `GOMPOSER_LIVE_NETWORK=1` |
 | `internal/cli/install.go` | **Replace** the Plan 1 stub with `orchestrator.Install` |
 | `internal/cli/update.go` | **Replace** the Plan 1 stub with `orchestrator.Update` |
 
@@ -90,7 +90,7 @@ Create `internal/platform/platform.go`:
 //
 // Stage 1 implementation is a stub: it returns "php-unknown". This keeps the
 // shape of every downstream cache stable while the real probe is built in
-// Stage 2 (see docs/superpowers/specs/2026-05-07-composer-go-design.md,
+// Stage 2 (see docs/superpowers/specs/2026-05-07-gomposer-design.md,
 // section "Stage 2 — Real-world coverage", "Platform req detection").
 //
 // When Stage 2 lands and replaces this implementation with a real probe,
@@ -178,7 +178,7 @@ Create `internal/orchestrator/orchestrator.go`:
 
 ```go
 // Package orchestrator drives the full install/update pipeline. It is the
-// only package in composer-go that knows the order of phases:
+// only package in gomposer that knows the order of phases:
 //
 //	read manifest -> [maybe read lock] -> [maybe consult resolution cache] ->
 //	resolve -> fetch -> materialize vendor/ -> generate autoloader ->
@@ -196,8 +196,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Options configures a single Install or Update run.
@@ -350,8 +350,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/torstendittmann/composer-go/internal/cache"
-	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/cache"
+	"github.com/torstendittmann/gomposer/internal/lock"
 )
 
 // computeCacheKey is the resolution-result cache key. It MUST be:
@@ -468,7 +468,7 @@ This task wires Plans 1, 2, 3 together: read manifest, check resolution-result c
 Append to `internal/orchestrator/orchestrator_test.go`:
 
 ```go
-import "github.com/torstendittmann/composer-go/internal/lock"
+import "github.com/torstendittmann/gomposer/internal/lock"
 
 // fakeSource implements registry.SourceLookup for tests. Returns canned
 // metadata; resolver is exercised through this in the resolveFunc indirection
@@ -538,11 +538,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/platform"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver"
 )
 
 // pipelineState carries values across phases. Built once at the top of run().
@@ -560,7 +560,7 @@ func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: read manifest bytes: %w", err)
 	}
-	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "composer-go.lock"))
+	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "gomposer.lock"))
 	pf, err := platform.Fingerprint()
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: platform fingerprint: %w", err)
@@ -612,7 +612,7 @@ func buildLockFile(ps *pipelineState, res *resolver.Result) *lock.File {
 	manifestHash := sha256.Sum256(ps.manifestBytes)
 	return &lock.File{
 		SchemaVersion:       lock.SchemaVersion,
-		Generator:           lock.Generator{Name: "composer-go", Version: "0.1.0"},
+		Generator:           lock.Generator{Name: "gomposer", Version: "0.1.0"},
 		ManifestContentHash: "sha256:" + hex.EncodeToString(manifestHash[:]),
 		PlatformFingerprint: ps.platform,
 		Stability: lock.Stability{
@@ -1027,7 +1027,7 @@ git commit -m "feat(orchestrator): wire autoloader generation phase"
 - Modify: `internal/orchestrator/pipeline.go`
 - Modify: `internal/orchestrator/orchestrator_test.go`
 
-After autoloader generation, write `composer-go.lock` to the project directory. We write atomically via temp-file + rename to avoid partially-written lockfiles on a crash.
+After autoloader generation, write `gomposer.lock` to the project directory. We write atomically via temp-file + rename to avoid partially-written lockfiles on a crash.
 
 - [ ] **Step 1: Append failing test**
 
@@ -1038,13 +1038,13 @@ func TestWriteLockProducesValidJSON(t *testing.T) {
 	dir := t.TempDir()
 	f := &lock.File{
 		SchemaVersion: lock.SchemaVersion,
-		Generator:     lock.Generator{Name: "composer-go", Version: "0.1.0"},
+		Generator:     lock.Generator{Name: "gomposer", Version: "0.1.0"},
 		Packages:      []lock.Package{{Name: "psr/log", Version: "3.0.0"}},
 	}
 	if err := writeLock(dir, f); err != nil {
 		t.Fatalf("writeLock: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	data, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
 	if err != nil {
 		t.Fatalf("read lock: %v", err)
 	}
@@ -1069,13 +1069,13 @@ Expected: build error on `writeLock`.
 Append to `internal/orchestrator/pipeline.go`:
 
 ```go
-// writeLock serializes f and writes it atomically to composer-go.lock.
+// writeLock serializes f and writes it atomically to gomposer.lock.
 func writeLock(projectDir string, f *lock.File) error {
 	data, err := f.Encode()
 	if err != nil {
 		return fmt.Errorf("orchestrator: encode lock: %w", err)
 	}
-	final := filepath.Join(projectDir, "composer-go.lock")
+	final := filepath.Join(projectDir, "gomposer.lock")
 	tmp := final + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("orchestrator: write lock: %w", err)
@@ -1097,7 +1097,7 @@ Expected: PASS.
 
 ```bash
 git add internal/orchestrator
-git commit -m "feat(orchestrator): atomic composer-go.lock write"
+git commit -m "feat(orchestrator): atomic gomposer.lock write"
 ```
 
 ---
@@ -1158,8 +1158,8 @@ func TestInstallFullPipelineWithFakes(t *testing.T) {
 	if err := Install(context.Background(), opts); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "composer-go.lock")); err != nil {
-		t.Errorf("composer-go.lock not written: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
+		t.Errorf("gomposer.lock not written: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "vendor", "autoload.php")); err != nil {
 		t.Errorf("vendor/autoload.php not written: %v", err)
@@ -1214,11 +1214,11 @@ Append to `internal/orchestrator/pipeline.go`:
 
 ```go
 import (
-	"github.com/torstendittmann/composer-go/internal/autoload"
-	"github.com/torstendittmann/composer-go/internal/cache"
-	"github.com/torstendittmann/composer-go/internal/fetcher"
-	"github.com/torstendittmann/composer-go/internal/registry/packagist"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/autoload"
+	"github.com/torstendittmann/gomposer/internal/cache"
+	"github.com/torstendittmann/gomposer/internal/fetcher"
+	"github.com/torstendittmann/gomposer/internal/registry/packagist"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 // defaultDeps wires up the production Fetcher, Materializer, Autoloader, and
@@ -1241,11 +1241,11 @@ func defaultDeps(opts *Options) error {
 	if opts.Fetcher == nil {
 		opts.Fetcher = fetcher.New(fetcher.Config{
 			CacheDir: filepath.Join(cacheRoot, "dist"),
-			StoreDir: filepath.Join(opts.ProjectDir, ".composer-go", "store"),
+			StoreDir: filepath.Join(opts.ProjectDir, ".gomposer", "store"),
 		})
 	}
 	if opts.Materializer == nil {
-		opts.Materializer = store.New(filepath.Join(opts.ProjectDir, ".composer-go", "store"))
+		opts.Materializer = store.New(filepath.Join(opts.ProjectDir, ".gomposer", "store"))
 	}
 	if opts.Autoloader == nil {
 		opts.Autoloader = autoload.New()
@@ -1341,14 +1341,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/torstendittmann/composer-go/internal/orchestrator"
+	"github.com/torstendittmann/gomposer/internal/orchestrator"
 )
 
 func newInstallCmd() *cobra.Command {
 	var projectDir string
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install dependencies into vendor/ from composer.json (using composer-go.lock if present)",
+		Short: "Install dependencies into vendor/ from composer.json (using gomposer.lock if present)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectDir == "" {
 				wd, err := os.Getwd()
@@ -1386,14 +1386,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/torstendittmann/composer-go/internal/orchestrator"
+	"github.com/torstendittmann/gomposer/internal/orchestrator"
 )
 
 func newUpdateCmd() *cobra.Command {
 	var projectDir string
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Re-resolve all dependencies and rewrite composer-go.lock + vendor/",
+		Short: "Re-resolve all dependencies and rewrite gomposer.lock + vendor/",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectDir == "" {
 				wd, err := os.Getwd()
@@ -1443,8 +1443,8 @@ func TestInstallFailsWithoutManifest(t *testing.T) {
 - [ ] **Step 4: Build + smoke**
 
 ```bash
-go build ./cmd/composer-go
-./composer-go install --help
+go build ./cmd/gomposer
+./gomposer install --help
 ```
 
 Expected: help text mentions `--project`, `--no-dev`, `--verbose`.
@@ -1475,7 +1475,7 @@ The acceptance test for stage 1. We use `psr/log` because:
 - It is small: zip is ~10 KB, makes the warm-cache <100ms target achievable.
 - It is widely used and unlikely to disappear.
 
-Gated on `COMPOSER_GO_LIVE_NETWORK=1` so CI doesn't hit Packagist on every PR.
+Gated on `GOMPOSER_LIVE_NETWORK=1` so CI doesn't hit Packagist on every PR.
 
 - [ ] **Step 1: Write the live test**
 
@@ -1495,10 +1495,10 @@ import (
 // TestLiveInstallPsrLog is the stage-1 acceptance test: install a real
 // Packagist project end-to-end, then re-install on a warm cache in <100ms.
 //
-// Gated on COMPOSER_GO_LIVE_NETWORK=1.
+// Gated on GOMPOSER_LIVE_NETWORK=1.
 func TestLiveInstallPsrLog(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run this test against real Packagist")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run this test against real Packagist")
 	}
 
 	// Isolate caches: we want a clean cold path on the first run.
@@ -1508,7 +1508,7 @@ func TestLiveInstallPsrLog(t *testing.T) {
 	projectDir := t.TempDir()
 	manifestPath := filepath.Join(projectDir, "composer.json")
 	manifest := []byte(`{
-  "name": "composer-go-test/live",
+  "name": "gomposer-test/live",
   "type": "library",
   "require": { "psr/log": "^3.0" }
 }`)
@@ -1529,8 +1529,8 @@ func TestLiveInstallPsrLog(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, "vendor", "autoload.php")); err != nil {
 		t.Errorf("vendor/autoload.php not generated: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, "composer-go.lock")); err != nil {
-		t.Errorf("composer-go.lock not written: %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, "gomposer.lock")); err != nil {
+		t.Errorf("gomposer.lock not written: %v", err)
 	}
 
 	// At least one PHP source file should be present in the materialized package.
@@ -1564,8 +1564,8 @@ func TestLiveInstallPsrLog(t *testing.T) {
 // TestLiveUpdateRewritesLock exercises the update path against real Packagist.
 // Gated identically.
 func TestLiveUpdateRewritesLock(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1")
 	}
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
@@ -1577,19 +1577,19 @@ func TestLiveUpdateRewritesLock(t *testing.T) {
 	if err := Update(context.Background(), Options{ProjectDir: dir}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "composer-go.lock")); err != nil {
-		t.Errorf("composer-go.lock not written by update: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
+		t.Errorf("gomposer.lock not written by update: %v", err)
 	}
 }
 ```
 
 - [ ] **Step 2: Run the live test**
 
-Run: `COMPOSER_GO_LIVE_NETWORK=1 go test ./internal/orchestrator/... -run TestLive -v`
+Run: `GOMPOSER_LIVE_NETWORK=1 go test ./internal/orchestrator/... -run TestLive -v`
 
 Expected:
 - Cold install completes in 1–5 seconds (network-bound).
-- `vendor/psr/log/`, `vendor/autoload.php`, `composer-go.lock` exist.
+- `vendor/psr/log/`, `vendor/autoload.php`, `gomposer.lock` exist.
 - Warm install completes in <100ms.
 
 If the warm install exceeds 100ms, the bottleneck is one of:
@@ -1618,7 +1618,7 @@ Run the binary against a real project to confirm the user-facing UX matches the 
 - [ ] **Step 1: Build**
 
 ```bash
-go build -o composer-go ./cmd/composer-go
+go build -o gomposer ./cmd/gomposer
 ```
 
 Expected: binary in repo root, ~5–15 MB.
@@ -1629,24 +1629,24 @@ Expected: binary in repo root, ~5–15 MB.
 SMOKE=$(mktemp -d)
 cat > $SMOKE/composer.json <<'EOF'
 {
-  "name": "composer-go-smoke/test",
+  "name": "gomposer-smoke/test",
   "type": "library",
   "require": { "psr/log": "^3.0" }
 }
 EOF
-./composer-go install --project $SMOKE
+./gomposer install --project $SMOKE
 ls $SMOKE/vendor/psr/log
 ls $SMOKE/vendor/autoload.php
-ls $SMOKE/composer-go.lock
+ls $SMOKE/gomposer.lock
 ```
 
-Expected: `psr/log/` directory with PHP files, `autoload.php` exists, `composer-go.lock` exists. Exit code 0.
+Expected: `psr/log/` directory with PHP files, `autoload.php` exists, `gomposer.lock` exists. Exit code 0.
 
 - [ ] **Step 3: Warm install timing with the binary**
 
 ```bash
 rm -rf $SMOKE/vendor
-time ./composer-go install --project $SMOKE
+time ./gomposer install --project $SMOKE
 ```
 
 Expected: real time <100ms.
@@ -1654,16 +1654,16 @@ Expected: real time <100ms.
 - [ ] **Step 4: Update path**
 
 ```bash
-./composer-go update --project $SMOKE
+./gomposer update --project $SMOKE
 ```
 
-Expected: exits 0; `composer-go.lock` is rewritten (mtime advances).
+Expected: exits 0; `gomposer.lock` is rewritten (mtime advances).
 
 - [ ] **Step 5: Cancellation works**
 
 ```bash
-rm -rf ~/.cache/composer-go ~/Library/Caches/composer-go $SMOKE/vendor
-( ./composer-go install --project $SMOKE & echo $! > /tmp/cg.pid ; wait )
+rm -rf ~/.cache/gomposer ~/Library/Caches/gomposer $SMOKE/vendor
+( ./gomposer install --project $SMOKE & echo $! > /tmp/cg.pid ; wait )
 # In another terminal during the run: kill -INT $(cat /tmp/cg.pid)
 ```
 
@@ -1673,7 +1673,7 @@ Expected: process exits non-zero with a context-cancelled-style message (manual;
 
 ```bash
 go test ./...
-COMPOSER_GO_LIVE_NETWORK=1 go test ./...
+GOMPOSER_LIVE_NETWORK=1 go test ./...
 ```
 
 Expected: both green. Live run includes `TestLiveInstallPsrLog`, `TestLiveUpdateRewritesLock`, and the Plan 2 live Packagist test.
@@ -1684,14 +1684,14 @@ Expected: both green. Live run includes `TestLiveInstallPsrLog`, `TestLiveUpdate
 
 This is the spec's stage-1 acceptance bar (design spec section "Stage 1 — Core install path"):
 
-- [ ] `composer-go install` on a small real Packagist project (`psr/log`) succeeds.
+- [ ] `gomposer install` on a small real Packagist project (`psr/log`) succeeds.
 - [ ] The generated `vendor/autoload.php` exists in `<project>/vendor/`.
-- [ ] `composer-go.lock` exists with at least one entry.
+- [ ] `gomposer.lock` exists with at least one entry.
 - [ ] Repeat install on a warm cache completes in <100ms (measured by `TestLiveInstallPsrLog` and the Task 12 step-3 manual run).
-- [ ] `composer-go update` rewrites the lockfile and exits 0.
+- [ ] `gomposer update` rewrites the lockfile and exits 0.
 - [ ] All four cache layers (HTTP, content-addressed package store, resolution-result, parsed-manifest) are exercised on the cold path and short-circuit the hot path.
 - [ ] Cancellation via SIGINT propagates through the orchestrator and stops in-flight downloads.
-- [ ] `go test ./...` is green offline; live tests are green with `COMPOSER_GO_LIVE_NETWORK=1`.
+- [ ] `go test ./...` is green offline; live tests are green with `GOMPOSER_LIVE_NETWORK=1`.
 - [ ] Stub `platform.Fingerprint()` returns `"php-unknown"` and is referenced in every cache key (manifest hash, lock hash, fingerprint) — verifiable by inspecting `computeCacheKey` callers and grepping for `Fingerprint()`.
 
 If any item fails, fix forward in a follow-up commit before declaring stage 1 done. Leave Stage 2 work (real PHP detection, VCS, classmap, files autoloader, scripts) for the next plan series; do not retrofit any of it into this plan.

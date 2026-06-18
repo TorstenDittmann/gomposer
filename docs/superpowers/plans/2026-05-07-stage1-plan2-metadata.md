@@ -4,7 +4,7 @@
 
 **Goal:** Fetch package metadata from Packagist's v2 API, persist responses on disk with ETag-based conditional GETs (cache layer 1), and cache the decoded form keyed by content hash (cache layer 4). Expose a single `registry.Source` interface that the resolver consumes.
 
-**Architecture:** A `Source` interface so the resolver does not know whether metadata came from Packagist, a future VCS adapter, or a fixture. The Packagist implementation wraps an `http.Client` with a disk-backed cache. The parsed-manifest cache sits one level up: it serializes decoded `PackageMetadata` to a binary format keyed by sha256 of the raw JSON. Both caches live under `$XDG_CACHE_HOME/composer-go/`.
+**Architecture:** A `Source` interface so the resolver does not know whether metadata came from Packagist, a future VCS adapter, or a fixture. The Packagist implementation wraps an `http.Client` with a disk-backed cache. The parsed-manifest cache sits one level up: it serializes decoded `PackageMetadata` to a binary format keyed by sha256 of the raw JSON. Both caches live under `$XDG_CACHE_HOME/gomposer/`.
 
 **Tech Stack:** Go stdlib `net/http`, `encoding/json`, `encoding/gob`, `crypto/sha256`. No new external deps.
 
@@ -51,8 +51,8 @@ func TestRootHonoursXDG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != filepath.Join("/tmp/xdg-cache", "composer-go") {
-		t.Errorf("Root = %q, want /tmp/xdg-cache/composer-go", got)
+	if got != filepath.Join("/tmp/xdg-cache", "gomposer") {
+		t.Errorf("Root = %q, want /tmp/xdg-cache/gomposer", got)
 	}
 }
 
@@ -63,10 +63,10 @@ func TestRootFallsBackToHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// On macOS we want ~/Library/Caches/composer-go; elsewhere ~/.cache/composer-go.
+	// On macOS we want ~/Library/Caches/gomposer; elsewhere ~/.cache/gomposer.
 	// Test environment is darwin — adjust if running on linux CI.
-	if got != filepath.Join("/home/u", "Library", "Caches", "composer-go") &&
-		got != filepath.Join("/home/u", ".cache", "composer-go") {
+	if got != filepath.Join("/home/u", "Library", "Caches", "gomposer") &&
+		got != filepath.Join("/home/u", ".cache", "gomposer") {
 		t.Errorf("Root = %q, want HOME-rooted cache path", got)
 	}
 }
@@ -94,15 +94,15 @@ import (
 	"runtime"
 )
 
-const dirName = "composer-go"
+const dirName = "gomposer"
 
-// Root returns the absolute path to the composer-go cache directory.
+// Root returns the absolute path to the gomposer cache directory.
 // It does NOT create the directory; callers create per-layer subdirs.
 //
 // Resolution order:
-//  1. $XDG_CACHE_HOME/composer-go (if set, regardless of OS)
-//  2. macOS: $HOME/Library/Caches/composer-go
-//  3. other: $HOME/.cache/composer-go
+//  1. $XDG_CACHE_HOME/gomposer (if set, regardless of OS)
+//  2. macOS: $HOME/Library/Caches/gomposer
+//  3. other: $HOME/.cache/gomposer
 func Root() (string, error) {
 	if x := os.Getenv("XDG_CACHE_HOME"); x != "" {
 		return filepath.Join(x, dirName), nil
@@ -702,7 +702,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 const sampleResponse = `{
@@ -809,9 +809,9 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/torstendittmann/composer-go/internal/cache/httpcache"
-	"github.com/torstendittmann/composer-go/internal/cache/parsedcache"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/cache/httpcache"
+	"github.com/torstendittmann/gomposer/internal/cache/parsedcache"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 const defaultBaseURL = "https://repo.packagist.org"
@@ -979,14 +979,14 @@ git commit -m "feat(registry/packagist): v2 lookup with HTTP and parsed caches"
 **Files:**
 - Modify: `internal/registry/packagist/packagist_test.go`
 
-A `_live` test that hits real Packagist, gated on `COMPOSER_GO_LIVE_NETWORK=1`. This is dev-time confidence, not CI.
+A `_live` test that hits real Packagist, gated on `GOMPOSER_LIVE_NETWORK=1`. This is dev-time confidence, not CI.
 
 - [ ] **Step 1: Append the test**
 
 ```go
 func TestLiveLookupMonolog(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run")
 	}
 	c, err := New(Config{CacheDir: t.TempDir()})
 	if err != nil {
@@ -1006,7 +1006,7 @@ Add `"os"` to the imports.
 
 - [ ] **Step 2: Run gated**
 
-Run: `COMPOSER_GO_LIVE_NETWORK=1 go test ./internal/registry/packagist/... -run TestLive -v`
+Run: `GOMPOSER_LIVE_NETWORK=1 go test ./internal/registry/packagist/... -run TestLive -v`
 
 Expected: PASS, fetches dozens of versions.
 
@@ -1028,6 +1028,6 @@ git commit -m "test(packagist): live-network smoke test gated on env var"
 ## Plan 2 acceptance check
 
 - `go test ./...` is green offline.
-- `COMPOSER_GO_LIVE_NETWORK=1 go test ./internal/registry/packagist/... -run TestLive` fetches `monolog/monolog` from real Packagist.
+- `GOMPOSER_LIVE_NETWORK=1 go test ./internal/registry/packagist/... -run TestLive` fetches `monolog/monolog` from real Packagist.
 - Re-running the live test on a warm cache produces zero `OK` responses (only `304 Not Modified`) — verify by adding logging temporarily if curious.
 - Types `registry.PackageMetadata`, `registry.PackageVersion`, `registry.SourceLookup` are stable — Plans 3, 4, and 6 import them directly.

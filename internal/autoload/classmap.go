@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 // CollectClassmap walks every classmap entry of every package (and the

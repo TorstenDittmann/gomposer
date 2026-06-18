@@ -3,7 +3,7 @@ package platform
 import (
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 func newTestPlatform(t *testing.T) *Platform {

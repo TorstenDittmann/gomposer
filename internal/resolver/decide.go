@@ -4,7 +4,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // decideResult is one of three outcomes from one call to decide().

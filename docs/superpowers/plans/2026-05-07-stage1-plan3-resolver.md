@@ -56,7 +56,7 @@ package resolver
 import (
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 func mustC(t *testing.T, s string) constraint.Constraint {
@@ -130,7 +130,7 @@ Create `internal/resolver/term.go`:
 
 ```go
 // Package resolver implements a PubGrub-based dependency resolver for
-// composer-go. The algorithm is described at a high level in the design spec
+// gomposer. The algorithm is described at a high level in the design spec
 // and follows the canonical Dart pub solver in shape, adapted to PHP's
 // stability flags and dev-* versions.
 //
@@ -151,7 +151,7 @@ package resolver
 import (
 	"fmt"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // Term is one constraint over one package, with a sign.
@@ -518,7 +518,7 @@ Create `internal/resolver/assignment.go`:
 package resolver
 
 import (
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // Assignment is one step in the partial solution. Either a concrete decision
@@ -697,7 +697,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Static answers Lookup calls from an in-memory map. Versions for each
@@ -779,8 +779,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 func TestVersionListerSortedDesc(t *testing.T) {
@@ -805,8 +805,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 func TestVersionListerSortedDesc(t *testing.T) {
@@ -880,8 +880,8 @@ import (
 	"context"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // listedVersion pairs the parsed version with the raw form Packagist
@@ -1045,8 +1045,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Result is the resolver's output: one entry per chosen package.
@@ -1456,7 +1456,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // decideResult is one of three outcomes from one call to decide().
@@ -1690,9 +1690,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 func TestSolveSimpleNoDeps(t *testing.T) {
@@ -1893,10 +1893,10 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Input is everything Solve needs.
@@ -2184,7 +2184,7 @@ package resolver
 import (
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 func TestToLockPackages(t *testing.T) {
@@ -2245,7 +2245,7 @@ Create `internal/resolver/adapter.go`:
 package resolver
 
 import (
-	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/lock"
 )
 
 // ToLockPackages converts a resolver Result into the slices the orchestrator
@@ -2254,7 +2254,7 @@ import (
 // to reflect verified sha256 rather than the registry-advertised one).
 //
 // Suggest is intentionally NOT copied here in stage 1; orchestrator can add
-// it later if needed for `composer-go suggest` (post-MVP).
+// it later if needed for `gomposer suggest` (post-MVP).
 func ToLockPackages(r *Result) (prod, dev []lock.Package) {
 	if r == nil {
 		return nil, nil
@@ -2328,9 +2328,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 type countingLookup struct {
@@ -2571,10 +2571,10 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 func TestPropertyRandomSatisfiableGraphs(t *testing.T) {
@@ -2771,6 +2771,6 @@ These are flagged so future readers do not assume they were forgotten:
 - **Branch aliases (`dev-main as 1.x-dev`).** The constraint parser in Plan 1 records the raw alias text but the resolver does not yet collapse aliased dev branches into numeric ranges. Implemented in a stage-2 follow-up alongside VCS metadata.
 - **`provide` / `replace` / `conflict` keywords.** None are honored. A package that *provides* another (e.g., a `psr/log-implementation`) will not be matched against requires of the provided name. A package that *conflicts* with another will be installed alongside it. These three keywords are tracked for stage-2 work.
 - **Platform constraint enforcement.** `php`, `php-64bit`, `hhvm`, `ext-*`, `lib-*` requires are SILENTLY SKIPPED in stage 1. Plan 6 (platform detection) wires them in as a separate concern; until then they are documented in the lockfile but not validated against the runtime PHP.
-- **"Stay close to lock" preference.** When `Input.Lock` is non-nil, stage 1 ignores it. Stage 3 uses it as a tiebreaker so `composer-go install` honors lockfile pins; for now `install` and `update` produce the same answer for the same manifest.
+- **"Stay close to lock" preference.** When `Input.Lock` is non-nil, stage 1 ignores it. Stage 3 uses it as a tiebreaker so `gomposer install` honors lockfile pins; for now `install` and `update` produce the same answer for the same manifest.
 - **Suggestion propagation into the result.** `Suggest` from registry records is dropped; the orchestrator can re-read it from the manifest when rendering post-install suggestions.
 - **PubGrub Relation refinement using probe versions.** `Term.Relation` always returns `Overlapping` when neither term is decided, which is sound but slower than necessary. Stage 3 introduces probe-version refinement for fewer wasted propagation steps.

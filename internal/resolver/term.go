@@ -1,5 +1,5 @@
 // Package resolver implements a PubGrub-based dependency resolver for
-// composer-go. The algorithm is described at a high level in the design spec
+// gomposer. The algorithm is described at a high level in the design spec
 // and follows the canonical Dart pub solver in shape, adapted to PHP's
 // stability flags and dev-* versions.
 //
@@ -20,7 +20,7 @@ package resolver
 import (
 	"fmt"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // Term is one constraint over one package, with a sign.

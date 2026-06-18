@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close residual gaps in `internal/constraint` between composer-go's parser and the syntax accepted by Composer in the wild. Stage 1-2 real-world usage surfaced six recurring failure modes — hyphen ranges, comma AND-separators, optional spaces around comparison operators, `@<stability>` suffixes, branch-alias edge cases, and slashed dev branches. Each gap is fixable in `parseTerm` / `parseAndClause` / `ParseVersion`; the bulk of the work is then a regression corpus test that pins the behavior against a wide pile of real constraint strings copied verbatim from popular Composer packages.
+**Goal:** Close residual gaps in `internal/constraint` between gomposer's parser and the syntax accepted by Composer in the wild. Stage 1-2 real-world usage surfaced six recurring failure modes — hyphen ranges, comma AND-separators, optional spaces around comparison operators, `@<stability>` suffixes, branch-alias edge cases, and slashed dev branches. Each gap is fixable in `parseTerm` / `parseAndClause` / `ParseVersion`; the bulk of the work is then a regression corpus test that pins the behavior against a wide pile of real constraint strings copied verbatim from popular Composer packages.
 
-**Non-goals:** This plan is parser-side only. The `@<stability>` suffix is recognized and stripped so it doesn't error, but composer-go's resolver still applies the global `minimum-stability` for now — the suffix's actual override semantics are deferred to a later stability-policy plan. Likewise, hyphen-range upper-bound bumping replicates Composer's "partial right side relaxes the bound" rule but does not introduce any new constraint datatype: it still expands to a pair of `(OpGe, OpLt)` terms.
+**Non-goals:** This plan is parser-side only. The `@<stability>` suffix is recognized and stripped so it doesn't error, but gomposer's resolver still applies the global `minimum-stability` for now — the suffix's actual override semantics are deferred to a later stability-policy plan. Likewise, hyphen-range upper-bound bumping replicates Composer's "partial right side relaxes the bound" rule but does not introduce any new constraint datatype: it still expands to a pair of `(OpGe, OpLt)` terms.
 
 **Architecture:** All changes stay inside `internal/constraint`. We extend `Parse` to normalize comma separators and operator-internal whitespace before clause splitting; we add a hyphen-range pass over the field list inside `parseAndClause`; we extend `ParseVersion` to recognize and discard the `@<stability>` suffix. A new file `constraint_real_world_test.go` holds the regression corpus — one source of truth for "things real composer.json files contain that we must not regress on."
 
@@ -371,7 +371,7 @@ git commit -m "feat(constraint): hyphen ranges with partial-upper bumping"
 
 ## Task 4: `@<stability>` suffix
 
-**Composer rule:** `1.0@dev`, `1.0.0@stable`, `^2.0@beta` — the `@<stab>` suffix overrides the package-global `minimum-stability` for that one constraint. Parser-side, the suffix must be recognized and stripped without error. composer-go's resolver does not yet honor it as an override, but we record it on the `Version` for the future stability-policy plan to consume.
+**Composer rule:** `1.0@dev`, `1.0.0@stable`, `^2.0@beta` — the `@<stab>` suffix overrides the package-global `minimum-stability` for that one constraint. Parser-side, the suffix must be recognized and stripped without error. gomposer's resolver does not yet honor it as an override, but we record it on the `Version` for the future stability-policy plan to consume.
 
 **Files:**
 - Modify: `internal/constraint/version.go`

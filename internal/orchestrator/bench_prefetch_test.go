@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/lock"
 )
 
 // BenchmarkPrefetchVsNoPrefetch reports the wall-clock contribution of
@@ -158,7 +158,7 @@ func sha256OfBench(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// writeFixtureLockWithDist writes a composer-go.lock where every package
+// writeFixtureLockWithDist writes a gomposer.lock where every package
 // has a real Dist.URL and Dist.Sha256 pointing at the provided url and sha.
 // This lets the production fetcher (used in the benchmark) actually attempt
 // the download.
@@ -173,7 +173,7 @@ func writeFixtureLockWithDist(tb testing.TB, dir string, names []string, url, sh
 	writeFixtureLockWithDistPerPkg(tb, dir, names, urls, shas)
 }
 
-// writeFixtureLockWithDistPerPkg writes a composer-go.lock where each package
+// writeFixtureLockWithDistPerPkg writes a gomposer.lock where each package
 // has an individually specified Dist.URL and Dist.Sha256.
 func writeFixtureLockWithDistPerPkg(tb testing.TB, dir string, names, urls, shas []string) {
 	tb.Helper()
@@ -193,7 +193,7 @@ func writeFixtureLockWithDistPerPkg(tb testing.TB, dir string, names, urls, shas
 	if err != nil {
 		tb.Fatalf("writeFixtureLockWithDistPerPkg: encode: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "composer-go.lock"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), data, 0o644); err != nil {
 		tb.Fatalf("writeFixtureLockWithDistPerPkg: write: %v", err)
 	}
 }

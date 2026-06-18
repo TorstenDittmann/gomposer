@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Cut wall-clock time on the lock-unchanged install path (the everyday case) by overlapping package downloads with the resolver. When `composer-go.lock` exists, kick off background downloads of every package listed in the lock as soon as we have parsed the lockfile bytes — in parallel with the resolver phase. The fetcher already deduplicates by sha256 store key, so when the resolver produces a result that agrees with the lock (the common case), every package is already on disk and `fetchAll` becomes a sequence of warm-store hits. When the resolver picks a different version, the speculative download is wasted bandwidth, but the artifact is still in the content-addressed store and benefits future runs.
+**Goal:** Cut wall-clock time on the lock-unchanged install path (the everyday case) by overlapping package downloads with the resolver. When `gomposer.lock` exists, kick off background downloads of every package listed in the lock as soon as we have parsed the lockfile bytes — in parallel with the resolver phase. The fetcher already deduplicates by sha256 store key, so when the resolver produces a result that agrees with the lock (the common case), every package is already on disk and `fetchAll` becomes a sequence of warm-store hits. When the resolver picks a different version, the speculative download is wasted bandwidth, but the artifact is still in the content-addressed store and benefits future runs.
 
 This plan implements **optimistic op 1** from the design spec. The complement, optimistic op 2 (pipelined extract), already shipped with stage 1.
 
@@ -45,8 +45,8 @@ This plan implements **optimistic op 1** from the design spec. The complement, o
 | `internal/orchestrator/prefetch_test.go` | Unit tests with fake fetcher / fake source asserting Fetch fires before Solve. |
 | `internal/orchestrator/orchestrator.go` | New `Options.NoPrefetch` field. |
 | `internal/orchestrator/pipeline.go` | Wire prefetcher into `runFullPipeline`. |
-| `cmd/composer-go/install.go` | Surface `--no-prefetch` flag. |
-| `cmd/composer-go/update.go` | Surface `--no-prefetch` flag (no-op there since we always skip prefetch on update, but the flag exists for symmetry). |
+| `cmd/gomposer/install.go` | Surface `--no-prefetch` flag. |
+| `cmd/gomposer/update.go` | Surface `--no-prefetch` flag (no-op there since we always skip prefetch on update, but the flag exists for symmetry). |
 | `internal/orchestrator/bench_prefetch_test.go` | Benchmark / acceptance harness with a slow `httptest.Server` and a synthetic 30-package lockfile. |
 
 ---
@@ -54,9 +54,9 @@ This plan implements **optimistic op 1** from the design spec. The complement, o
 ## Task 1: Add `Options.NoPrefetch` and CLI flag
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/orchestrator.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/cmd/composer-go/install.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/cmd/composer-go/update.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/orchestrator.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/cmd/gomposer/install.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/cmd/gomposer/update.go`
 
 The flag has to land first because every later test uses it (we want isolation: most tests assert "prefetch fires"; a few assert "with `NoPrefetch` it does not"). Default is `false`, i.e. prefetch is on by default.
 
@@ -78,20 +78,20 @@ NoPrefetch bool
 
 - [ ] **Step 2: Surface the CLI flag**
 
-In `cmd/composer-go/install.go`, add a flag binding next to the existing `--no-dev`, `--no-scripts`, etc. The cobra wiring follows the existing pattern verbatim:
+In `cmd/gomposer/install.go`, add a flag binding next to the existing `--no-dev`, `--no-scripts`, etc. The cobra wiring follows the existing pattern verbatim:
 
 ```go
 cmd.Flags().BoolVar(&opts.NoPrefetch, "no-prefetch", false, "disable lock-driven speculative prefetch (benchmark hook)")
 ```
 
-Repeat in `cmd/composer-go/update.go`. The flag is technically a no-op for `update` (we already skip prefetch on `forceResolve=true`), but parity matters — a user who scripts `composer-go install --no-prefetch` would be confused if `update` rejected it.
+Repeat in `cmd/gomposer/update.go`. The flag is technically a no-op for `update` (we already skip prefetch on `forceResolve=true`), but parity matters — a user who scripts `gomposer install --no-prefetch` would be confused if `update` rejected it.
 
 - [ ] **Step 3: Verify build**
 
 Run:
 
 ```bash
-cd /Users/torstendittmann/Documents/skunk/composer-go
+cd /Users/torstendittmann/Documents/skunk/gomposer
 go build ./...
 ```
 
@@ -100,7 +100,7 @@ Expected: clean build. No tests fail because nothing references `NoPrefetch` yet
 - [ ] **Step 4: Commit**
 
 ```bash
-git add internal/orchestrator/orchestrator.go cmd/composer-go/install.go cmd/composer-go/update.go
+git add internal/orchestrator/orchestrator.go cmd/gomposer/install.go cmd/gomposer/update.go
 git commit -m "feat(orchestrator): add NoPrefetch option and --no-prefetch CLI flag"
 ```
 
@@ -109,14 +109,14 @@ git commit -m "feat(orchestrator): add NoPrefetch option and --no-prefetch CLI f
 ## Task 2: `Prefetcher` skeleton — type, constructor, Wait
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch_test.go`
 
 We start with a unit-testable shell: given a `*lock.File` and a `Fetcher`, fire one `Fetch` call per package in a bounded errgroup, swallow errors, and expose a `Wait()` that callers use to join.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch_test.go`:
 
 ```go
 package orchestrator
@@ -128,7 +128,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/lock"
 )
 
 // recordingFetcher records every Fetch call. Optionally sleeps `delay` so
@@ -284,7 +284,7 @@ Expected: build error (`undefined: startPrefetch`).
 
 - [ ] **Step 3: Implement the Prefetcher**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch.go`:
 
 ```go
 package orchestrator
@@ -295,7 +295,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/lock"
 )
 
 // Prefetcher is the runtime handle returned by startPrefetch. Callers Wait
@@ -377,7 +377,7 @@ git commit -m "feat(orchestrator): Prefetcher type with bounded concurrent best-
 ## Task 3: Resolver-vs-prefetch race assertion
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch_test.go`
 
 The load-bearing claim of optimistic op 1: with a slow source, every locked package sees a `Fetch` call **before** the resolver finishes. We simulate the slow resolver with `time.Sleep` and a watcher goroutine that polls `Calls()`.
 
@@ -431,7 +431,7 @@ git commit -m "test(orchestrator): assert prefetch fires every Fetch before reso
 ## Task 4: Wire prefetch into `runFullPipeline`
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/pipeline.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/pipeline.go`
 
 The integration point is right after `newPipelineState`: we have `ps.lockBytes` and the production `opts.Fetcher`, and the resolver has not yet run. We parse the lockfile (best-effort — corrupt locks fall through), kick off the prefetcher, then call `resolveOrCache` exactly as before. Just before `fetchAll`, we `Wait()` on the prefetcher so any in-flight downloads are guaranteed to be present (or cancelled) before we double-dispatch the same packages.
 
@@ -460,7 +460,7 @@ The rest of the function (backfillSha, materializeAll, autoload, writeLock, fire
 
 - [ ] **Step 2: Add the `maybeStartPrefetch` helper**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch.go`:
 
 ```go
 // maybeStartPrefetch decides whether to kick off the speculative prefetch
@@ -491,7 +491,7 @@ func maybeStartPrefetch(ctx context.Context, ps *pipelineState, opts Options, fo
 }
 ```
 
-You will need to import `"github.com/torstendittmann/composer-go/internal/lock"` in `prefetch.go` if not already present (the file from Task 2 imports it for the test fixtures, but the production file did not).
+You will need to import `"github.com/torstendittmann/gomposer/internal/lock"` in `prefetch.go` if not already present (the file from Task 2 imports it for the test fixtures, but the production file did not).
 
 - [ ] **Step 3: Run the existing pipeline tests**
 
@@ -515,7 +515,7 @@ git commit -m "feat(orchestrator): wire lock-driven prefetch into runFullPipelin
 ## Task 5: Integration test — prefetch + pipeline + warm fetchAll
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch_test.go`
 
 Now we test the actual integration: `runFullPipeline` with a real-shaped `lock.File` on disk, a fake fetcher whose calls we count, and a fake source whose `Solve` we observe. The assertion: the fake fetcher sees every locked package fetched at most once across the prefetcher + fetchAll combined (i.e. fetchAll observes warm-store hits via the fake's call count).
 
@@ -523,7 +523,7 @@ The fake fetcher in this test is "warm-aware": after the first call for a given 
 
 - [ ] **Step 1: Write the integration test**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch_test.go`. The fixture helpers (`writeFixtureManifest`, `writeFixtureLock`, `recordingMaterializer`, `recordingAutoloader`) already exist in `pipeline_test.go` from stage 1 / plan 6 — reuse them; adapt signatures if minor.
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch_test.go`. The fixture helpers (`writeFixtureManifest`, `writeFixtureLock`, `recordingMaterializer`, `recordingAutoloader`) already exist in `pipeline_test.go` from stage 1 / plan 6 — reuse them; adapt signatures if minor.
 
 ```go
 // warmAwareFetcher reports unique-name fetches as `cold` and repeat
@@ -646,7 +646,7 @@ git commit -m "test(orchestrator): integration tests for prefetch warm-fetchAll 
 ## Task 6: Acceptance benchmark — lock-unchanged install vs Composer
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/bench_prefetch_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/bench_prefetch_test.go`
 
 A `Benchmark*` function (not a `Test*`) that synthesizes a 30-package lockfile and serves it from a slow `httptest.Server` (configurable per-package latency). The harness reports wall-clock for two runs:
 
@@ -659,7 +659,7 @@ We surface a `make bench-prefetch` target (in a follow-up Makefile change, not p
 
 - [ ] **Step 1: Write the benchmark**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/bench_prefetch_test.go`. Sketch:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/bench_prefetch_test.go`. Sketch:
 
 ```go
 package orchestrator
@@ -712,7 +712,7 @@ func BenchmarkPrefetchVsNoPrefetch(b *testing.B) {
 	writeFixtureLockWithDist(b, dir, names, srv.URL+"/p.zip", wantSha)
 
 	run := func(noPrefetch bool) time.Duration {
-		_ = os.RemoveAll(filepath.Join(dir, ".composer-go")) // cold store each run
+		_ = os.RemoveAll(filepath.Join(dir, ".gomposer")) // cold store each run
 		opts := Options{ProjectDir: dir, Workers: 8, NoPrefetch: noPrefetch}
 		t0 := time.Now()
 		if err := Install(context.Background(), opts); err != nil {
@@ -771,8 +771,8 @@ git commit -m "bench(orchestrator): wall-clock contribution of lock-driven prefe
 ## Task 7: Documentation — module-level comment + spec backreference
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/prefetch.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/orchestrator/orchestrator.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/prefetch.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/orchestrator/orchestrator.go`
 
 A future maintainer reading `prefetch.go` should be able to reconstruct, in 30 seconds, **why** prefetch is best-effort (errors swallowed), **why** Wait is unconditional (no nil-check at the call site), and **why** content-addressing makes double-fetch safe. Same for the package-level doc comment on `orchestrator.go`, which currently lists install-pipeline phases without mentioning the parallel speculative download.
 
@@ -839,13 +839,13 @@ After all tasks:
 
 - `go test ./...` is green on darwin and linux.
 - `go test -bench=BenchmarkPrefetchVsNoPrefetch -benchtime=3x -run=^$ ./internal/orchestrator/...` runs to completion and reports a `speedup` metric ≥1.5 on a developer workstation. The benchmark is not a CI gate — it's a regression-spotter for humans.
-- `composer-go install --no-prefetch` works (flag accepted, prefetch suppressed). `composer-go update --no-prefetch` works (flag accepted, no-op).
+- `gomposer install --no-prefetch` works (flag accepted, prefetch suppressed). `gomposer update --no-prefetch` works (flag accepted, no-op).
 - The unit tests assert the load-bearing claim of optimistic op 1 directly: with a slow source, every locked package's `Fetch` is invoked before the resolver returns.
 - The integration tests assert the warm-fetchAll handoff: after `Install`, every package was fetched exactly once cold, with at least one warm hit observed in the authoritative `fetchAll` pass.
 - The skip matrix is exercised: `forceResolve=true` (Update), `NoPrefetch=true`, and an absent lockfile each produce zero warm hits.
 - Public surface added:
   - `Options.NoPrefetch bool` (CLI: `--no-prefetch`).
   - Internal: `*Prefetcher`, `(*Prefetcher).Wait`, `startPrefetch`, `maybeStartPrefetch`. None of these are exported beyond the orchestrator package — prefetch is an internal pipeline concern.
-- Spec alignment: this plan implements optimistic op 1 from `docs/superpowers/specs/2026-05-07-composer-go-design.md` ("When a lockfile exists, start downloading the top-N packages by size in parallel with the resolver"). We download **every** package, not the top-N — at the bandwidth profile of a typical Composer install, the gain from "all packages" over "top-N" is larger than the cost of a few wasted downloads on resolver disagreement, and the simpler policy is much easier to reason about.
+- Spec alignment: this plan implements optimistic op 1 from `docs/superpowers/specs/2026-05-07-gomposer-design.md` ("When a lockfile exists, start downloading the top-N packages by size in parallel with the resolver"). We download **every** package, not the top-N — at the bandwidth profile of a typical Composer install, the gain from "all packages" over "top-N" is larger than the cost of a few wasted downloads on resolver disagreement, and the simpler policy is much easier to reason about.
 
 If any of these fails, fix forward in a follow-up commit before declaring Plan 4 done.

@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 func TestMaterializeStripsTopLevelDir(t *testing.T) {
@@ -90,7 +90,7 @@ func TestMaterializeWithoutWrapperDir(t *testing.T) {
 }
 
 // TestMaterializeSkipsWhenMarkerMatches asserts the warm-vendor fast path:
-// when a successful prior Materialize left a .composer-go-sha file at the
+// when a successful prior Materialize left a .gomposer-sha file at the
 // target root whose content matches pv.Dist.Sha, the second call must NOT
 // re-extract. We verify by removing the source zip from the store between
 // calls — if Materialize tried to extract again it would error; instead it
@@ -122,7 +122,7 @@ func TestMaterializeSkipsWhenMarkerMatches(t *testing.T) {
 	if err := f.Materialize(context.Background(), pv, target); err != nil {
 		t.Fatalf("first Materialize: %v", err)
 	}
-	marker := filepath.Join(target, ".composer-go-sha")
+	marker := filepath.Join(target, ".gomposer-sha")
 	if got, err := os.ReadFile(marker); err != nil {
 		t.Fatalf("marker missing after first Materialize: %v", err)
 	} else if string(got) != sha {
@@ -174,7 +174,7 @@ func TestMaterializeReExtractsOnShaChange(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(target, "VERSION"), []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(target, ".composer-go-sha"), []byte(sha256Hex(oldZip)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(target, ".gomposer-sha"), []byte(sha256Hex(oldZip)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -188,7 +188,7 @@ func TestMaterializeReExtractsOnShaChange(t *testing.T) {
 	if string(got) != "new" {
 		t.Errorf("target not refreshed: VERSION = %q, want %q", got, "new")
 	}
-	got, err = os.ReadFile(filepath.Join(target, ".composer-go-sha"))
+	got, err = os.ReadFile(filepath.Join(target, ".gomposer-sha"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,8 @@
 package resolver
 
 import (
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // ToLockPackages converts a resolver Result into the slices the orchestrator
@@ -11,7 +11,7 @@ import (
 // to reflect verified sha256 rather than the registry-advertised one).
 //
 // Suggest is intentionally NOT copied here in stage 1; orchestrator can add
-// it later if needed for `composer-go suggest` (post-MVP).
+// it later if needed for `gomposer suggest` (post-MVP).
 func ToLockPackages(r *Result) (prod, dev []lock.Package) {
 	if r == nil {
 		return nil, nil

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Static answers Lookup calls from an in-memory map. Versions for each

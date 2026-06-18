@@ -11,15 +11,15 @@ import (
 
 // TestLiveInstallEmitsPluginWarning installs phpstan/extension-installer (a
 // real composer-plugin) and asserts that a warning lands on the WarnWriter.
-// Gated on COMPOSER_GO_LIVE_NETWORK=1.
+// Gated on GOMPOSER_LIVE_NETWORK=1.
 func TestLiveInstallEmitsPluginWarning(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run against real Packagist")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run against real Packagist")
 	}
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{
-  "name": "composer-go-test/plugin-warn",
+  "name": "gomposer-test/plugin-warn",
   "require": { "phpstan/extension-installer": "^1.4" }
 }`), 0o644); err != nil {
 		t.Fatal(err)

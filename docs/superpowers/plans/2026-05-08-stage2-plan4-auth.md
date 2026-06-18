@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Read auth credentials from `~/.composer/auth.json` AND `~/.config/composer-go/auth.json` (the latter wins on conflict), expose a hostname-keyed `Lookup` API, and apply credentials to outgoing HTTP requests issued by `httpcache.Cache`. VCS git auth is handled via a `GIT_ASKPASS` shim for HTTPS clones; SSH-based git auth remains delegated to the user's git config.
+**Goal:** Read auth credentials from `~/.composer/auth.json` AND `~/.config/gomposer/auth.json` (the latter wins on conflict), expose a hostname-keyed `Lookup` API, and apply credentials to outgoing HTTP requests issued by `httpcache.Cache`. VCS git auth is handled via a `GIT_ASKPASS` shim for HTTPS clones; SSH-based git auth remains delegated to the user's git config.
 
 **Architecture:** A new `internal/auth` package owns parsing, merging, and lookup. The schema mirrors Composer's `auth.json` exactly so existing files Just Work. `httpcache.Cache` gains an optional `Credentials` resolver: when set, the cache injects the matching `Authorization` header into requests by hostname. The git wrapper writes a one-shot askpass script to a temp file at clone time.
 
@@ -327,7 +327,7 @@ git commit -m "feat(auth): Credentials value type with Kind enum and Apply"
 - Modify: `internal/auth/store.go`
 - Create: `internal/auth/store_test.go`
 
-A `Store` parses both `~/.composer/auth.json` and `~/.config/composer-go/auth.json`, merges them with the user-config file winning per host per kind, and exposes `Lookup(host) (Credentials, ok)`. Lookup precedence within a single host is fixed (see implementation comments).
+A `Store` parses both `~/.composer/auth.json` and `~/.config/gomposer/auth.json`, merges them with the user-config file winning per host per kind, and exposes `Lookup(host) (Credentials, ok)`. Lookup precedence within a single host is fixed (see implementation comments).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -580,7 +580,7 @@ git commit -m "feat(auth): merged Store with hostname Lookup and kind precedence
 `Load()` calls `defaultPaths()` which resolves:
 
 - composer file: `$HOME/.composer/auth.json`
-- user file: `$XDG_CONFIG_HOME/composer-go/auth.json`, falling back to `$HOME/.config/composer-go/auth.json`
+- user file: `$XDG_CONFIG_HOME/gomposer/auth.json`, falling back to `$HOME/.config/gomposer/auth.json`
 
 We honour `$XDG_CONFIG_HOME` when set so the same env-var conventions apply across cache and config.
 
@@ -606,7 +606,7 @@ func TestDefaultPathsXDG(t *testing.T) {
 	if composer != filepath.Join("/home/u", ".composer", "auth.json") {
 		t.Errorf("composer = %q", composer)
 	}
-	if user != filepath.Join("/cfg", "composer-go", "auth.json") {
+	if user != filepath.Join("/cfg", "gomposer", "auth.json") {
 		t.Errorf("user = %q", user)
 	}
 }
@@ -618,7 +618,7 @@ func TestDefaultPathsXDGUnset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user != filepath.Join("/home/u", ".config", "composer-go", "auth.json") {
+	if user != filepath.Join("/home/u", ".config", "gomposer", "auth.json") {
 		t.Errorf("user = %q", user)
 	}
 }
@@ -649,9 +649,9 @@ func defaultPaths() (composerPath, userPath string, err error) {
 	}
 	composerPath = filepath.Join(home, ".composer", "auth.json")
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		userPath = filepath.Join(x, "composer-go", "auth.json")
+		userPath = filepath.Join(x, "gomposer", "auth.json")
 	} else {
-		userPath = filepath.Join(home, ".config", "composer-go", "auth.json")
+		userPath = filepath.Join(home, ".config", "gomposer", "auth.json")
 	}
 	return composerPath, userPath, nil
 }
@@ -737,7 +737,7 @@ package auth
 
 import "regexp"
 
-// We match the most common shapes Composer/composer-go produces. The goal
+// We match the most common shapes Composer/gomposer produces. The goal
 // is hygiene against accidental logging — code that handles a Credentials
 // value should still avoid passing it to a logger in the first place.
 var redactPatterns = []*regexp.Regexp{
@@ -1108,7 +1108,7 @@ Modify `internal/registry/packagist/packagist.go`:
 ```go
 import (
 	// existing imports...
-	"github.com/torstendittmann/composer-go/internal/auth"
+	"github.com/torstendittmann/gomposer/internal/auth"
 )
 
 type Config struct {
@@ -1199,7 +1199,7 @@ func LoadStoreForTest(composerPath, userPath string) (*Store, error) {
 }
 ```
 
-Imports for `packagist_test.go`: add `os`, `filepath`, and `github.com/torstendittmann/composer-go/internal/auth`.
+Imports for `packagist_test.go`: add `os`, `filepath`, and `github.com/torstendittmann/gomposer/internal/auth`.
 
 Hostname-port note: the `httptest.Server` listens on `127.0.0.1:NNNN`. `auth.normHost` strips the port, so the auth file should key on `127.0.0.1`. Adjust the test fixture accordingly:
 
@@ -1232,7 +1232,7 @@ For HTTPS git URLs (the typical Packagist `dist`/`source` case for private VCS),
 
 SSH URLs are untouched — those use the user's existing `~/.ssh` config.
 
-The script is regenerated per clone (cheap) and removed when the caller invokes the returned cleanup. Token is passed via env var `COMPOSER_GO_GIT_TOKEN` so it never appears in `ps`.
+The script is regenerated per clone (cheap) and removed when the caller invokes the returned cleanup. Token is passed via env var `GOMPOSER_GIT_TOKEN` so it never appears in `ps`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1276,7 +1276,7 @@ func TestAskpassEmitsToken(t *testing.T) {
 
 	// Run the script with the token in env; it should print it to stdout.
 	cmd := exec.Command(askpass, "Password for 'https://github.com':")
-	cmd.Env = append(os.Environ(), "COMPOSER_GO_GIT_TOKEN=ghp_TEST")
+	cmd.Env = append(os.Environ(), "GOMPOSER_GIT_TOKEN=ghp_TEST")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
@@ -1340,15 +1340,15 @@ func PrepareGitEnv(c Credentials) (env []string, cleanup func(), err error) {
 		return nil, cleanup, nil
 	}
 
-	dir, err := os.MkdirTemp("", "composer-go-askpass-")
+	dir, err := os.MkdirTemp("", "gomposer-askpass-")
 	if err != nil {
 		return nil, cleanup, err
 	}
 	scriptPath := filepath.Join(dir, "askpass.sh")
 	const tmpl = `#!/bin/sh
 case "$1" in
-  Username*) printf '%%s' "${COMPOSER_GO_GIT_USER:-x-access-token}" ;;
-  *)         printf '%%s' "$COMPOSER_GO_GIT_TOKEN" ;;
+  Username*) printf '%%s' "${GOMPOSER_GIT_USER:-x-access-token}" ;;
+  *)         printf '%%s' "$GOMPOSER_GIT_TOKEN" ;;
 esac
 `
 	if err := os.WriteFile(scriptPath, []byte(fmt.Sprintf(tmpl)), 0o700); err != nil {
@@ -1360,8 +1360,8 @@ esac
 	env = []string{
 		"GIT_ASKPASS=" + scriptPath,
 		"GIT_TERMINAL_PROMPT=0",
-		"COMPOSER_GO_GIT_TOKEN=" + token,
-		"COMPOSER_GO_GIT_USER=" + user,
+		"GOMPOSER_GIT_TOKEN=" + token,
+		"GOMPOSER_GIT_USER=" + user,
 	}
 	return env, cleanup, nil
 }
@@ -1423,7 +1423,7 @@ Add a doc comment block to `Load()` in `internal/auth/store.go`:
 //
 // Precedence on host collision:
 //
-//	$XDG_CONFIG_HOME/composer-go/auth.json   (or ~/.config/composer-go/auth.json)
+//	$XDG_CONFIG_HOME/gomposer/auth.json   (or ~/.config/gomposer/auth.json)
 //	      wins over
 //	~/.composer/auth.json
 //
@@ -1436,7 +1436,7 @@ func Load() (*Store, error) { /* ... */ }
 
 No tests required for a doc-only change; verify the comment renders correctly with `go doc`:
 
-Run: `go doc github.com/torstendittmann/composer-go/internal/auth Load`
+Run: `go doc github.com/torstendittmann/gomposer/internal/auth Load`
 
 Expected: comment block visible, no rendering errors.
 
@@ -1455,6 +1455,6 @@ git commit -m "docs(auth): clarify precedence and project-local deferral"
 - A user `auth.json` containing `bearer.<host>=TOK` causes `httpcache.Cache.Get(<host>/...)` to send `Authorization: Bearer TOK` (verified by `TestCacheAppliesCredentials`).
 - `auth.Load()` tolerates either or both files being absent and never panics.
 - World-readable auth.json on Unix surfaces a warning via `Store.Warnings()`.
-- `auth.PrepareGitEnv` produces a working `GIT_ASKPASS` script that, given `COMPOSER_GO_GIT_TOKEN` in the environment, prints the token to stdout.
+- `auth.PrepareGitEnv` produces a working `GIT_ASKPASS` script that, given `GOMPOSER_GIT_TOKEN` in the environment, prints the token to stdout.
 - No raw secrets appear in any logger call: every code path that formats a credential-containing string runs through `auth.Redact` (search the codebase to confirm — `grep -R "credentials" internal/` should turn up only redacted formatting).
 - The Packagist client accepts an `Auth *auth.Store` and forwards credentials to the HTTP cache for any host registered in the auth files.

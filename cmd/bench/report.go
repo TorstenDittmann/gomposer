@@ -8,13 +8,13 @@ import (
 )
 
 // RenderMarkdown returns a markdown table with one row per (fixture, scenario).
-// composer-go and composer medians are paired side by side; speed-up is
-// composer / composer-go rounded to one decimal.
+// gomposer and composer medians are paired side by side; speed-up is
+// composer / gomposer rounded to one decimal.
 //
 // Empty results produce a header-only table — useful for CI smoke tests.
 func RenderMarkdown(results []Result) string {
 	var b strings.Builder
-	b.WriteString("| Fixture | Scenario | composer-go | composer | speed-up |\n")
+	b.WriteString("| Fixture | Scenario | gomposer | composer | speed-up |\n")
 	b.WriteString("|---------|----------|-------------|----------|----------|\n")
 
 	type key struct {
@@ -35,7 +35,7 @@ func RenderMarkdown(results []Result) string {
 			pairs[k] = p
 		}
 		switch r.Tool {
-		case ToolComposerGo:
+		case ToolGomposer:
 			p.cgo = r
 		case ToolComposer:
 			p.co = r

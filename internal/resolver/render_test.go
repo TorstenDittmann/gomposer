@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // loadFixture reads testdata/expected/<name>.txt and trims one trailing newline

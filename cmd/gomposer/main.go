@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/torstendittmann/composer-go/internal/cli"
+	"github.com/torstendittmann/gomposer/internal/cli"
 )
 
 func main() {

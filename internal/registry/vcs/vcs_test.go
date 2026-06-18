@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // makeBareRepoMulti creates a bare repo with the given files committed on
@@ -215,8 +215,8 @@ func TestNewFromManifestSkipsUnsupported(t *testing.T) {
 }
 
 func TestLiveLookupPublicRepo(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run")
 	}
 	c, err := New(Config{
 		URL:       "https://github.com/Seldaek/monolog.git",

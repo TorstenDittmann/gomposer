@@ -5,11 +5,11 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/platform"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Input is everything Solve needs.

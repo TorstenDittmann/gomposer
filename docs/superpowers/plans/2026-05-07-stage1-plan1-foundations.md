@@ -4,7 +4,7 @@
 
 **Goal:** Stand up the Go module, CLI scaffold, `composer.json` parser, PHP-style version + constraint logic, and lockfile read/write. No network, no resolver, no install side effects yet — but every type future plans depend on is defined and unit-tested.
 
-**Architecture:** Standard Go layout (`cmd/composer-go` + `internal/...`). Cobra for CLI. Parsers are pure (input → struct, no I/O). Constraint logic is custom because PHP semver has quirks no off-the-shelf library handles correctly (stability flags, `dev-*`, branch aliases, `as` aliasing).
+**Architecture:** Standard Go layout (`cmd/gomposer` + `internal/...`). Cobra for CLI. Parsers are pure (input → struct, no I/O). Constraint logic is custom because PHP semver has quirks no off-the-shelf library handles correctly (stability flags, `dev-*`, branch aliases, `as` aliasing).
 
 **Tech Stack:** Go 1.22+, `github.com/spf13/cobra` (CLI), `github.com/charmbracelet/log` (logging), standard library `encoding/json`, `testing`.
 
@@ -16,7 +16,7 @@
 |------|---------------|
 | `go.mod`, `go.sum` | Module definition |
 | `.gitignore` | Standard Go ignores + project-local cache dir |
-| `cmd/composer-go/main.go` | Thin entrypoint: build context, hand off to `cli.Execute` |
+| `cmd/gomposer/main.go` | Thin entrypoint: build context, hand off to `cli.Execute` |
 | `internal/cli/root.go` | Root cobra command + global flags (`--verbose`, `--no-dev`) |
 | `internal/cli/install.go` | `install` subcommand (stub: prints "not implemented") |
 | `internal/cli/update.go` | `update` subcommand (stub: prints "not implemented") |
@@ -40,9 +40,9 @@
 
 - [ ] **Step 1: Initialize Go module**
 
-Run: `cd /Users/torstendittmann/Documents/skunk/composer-go && go mod init github.com/torstendittmann/composer-go`
+Run: `cd /Users/torstendittmann/Documents/skunk/gomposer && go mod init github.com/torstendittmann/gomposer`
 
-Expected: creates `go.mod` with `module github.com/torstendittmann/composer-go` and a `go` directive.
+Expected: creates `go.mod` with `module github.com/torstendittmann/gomposer` and a `go` directive.
 
 - [ ] **Step 2: Write .gitignore**
 
@@ -50,7 +50,7 @@ Create `.gitignore`:
 
 ```gitignore
 # Binaries
-/composer-go
+/gomposer
 /dist/
 
 # Go
@@ -59,7 +59,7 @@ Create `.gitignore`:
 /coverage.out
 
 # Project caches
-/.composer-go/
+/.gomposer/
 /vendor/
 
 # Editor
@@ -81,7 +81,7 @@ git commit -m "chore: initialize Go module and gitignore"
 ## Task 2: CLI scaffold (root + stub install/update)
 
 **Files:**
-- Create: `cmd/composer-go/main.go`
+- Create: `cmd/gomposer/main.go`
 - Create: `internal/cli/root.go`
 - Create: `internal/cli/install.go`
 - Create: `internal/cli/update.go`
@@ -93,7 +93,7 @@ Run: `go get github.com/spf13/cobra@latest`
 
 Expected: cobra added to `go.mod`, `go.sum` populated.
 
-- [ ] **Step 2: Write `cmd/composer-go/main.go`**
+- [ ] **Step 2: Write `cmd/gomposer/main.go`**
 
 ```go
 package main
@@ -101,7 +101,7 @@ package main
 import (
 	"os"
 
-	"github.com/torstendittmann/composer-go/internal/cli"
+	"github.com/torstendittmann/gomposer/internal/cli"
 )
 
 func main() {
@@ -130,9 +130,9 @@ var (
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "composer-go",
+		Use:           "gomposer",
 		Short:         "A fast Go-based PHP package manager",
-		Long:          "composer-go installs PHP packages described in composer.json. It is a compatible consumer of composer.json but writes its own composer-go.lock.",
+		Long:          "gomposer installs PHP packages described in composer.json. It is a compatible consumer of composer.json but writes its own gomposer.lock.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -149,7 +149,7 @@ func newRootCmd() *cobra.Command {
 func Execute() error {
 	root := newRootCmd()
 	if err := root.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "composer-go: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gomposer: %v\n", err)
 		return err
 	}
 	return nil
@@ -202,20 +202,20 @@ func newUpdateCmd() *cobra.Command {
 
 - [ ] **Step 6: Verify it builds and `--help` works**
 
-Run: `go build ./cmd/composer-go && ./composer-go --help`
+Run: `go build ./cmd/gomposer && ./gomposer --help`
 
 Expected output includes `Available Commands:` with `install` and `update` listed.
 
 - [ ] **Step 7: Verify the stub error**
 
-Run: `./composer-go install`
+Run: `./gomposer install`
 
-Expected: process exits non-zero with stderr containing `composer-go: install: not implemented yet`.
+Expected: process exits non-zero with stderr containing `gomposer: install: not implemented yet`.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add go.mod go.sum cmd/composer-go internal/cli
+git add go.mod go.sum cmd/gomposer internal/cli
 git commit -m "feat(cli): cobra scaffold with install and update stubs"
 ```
 
@@ -277,7 +277,7 @@ import (
 )
 
 // Manifest is the parsed view of a composer.json file. Fields not yet
-// supported by composer-go are omitted; unknown fields in the input are
+// supported by gomposer are omitted; unknown fields in the input are
 // ignored silently for forward-compatibility with future Composer features.
 type Manifest struct {
 	Name string `json:"name"`
@@ -299,7 +299,7 @@ func Parse(data []byte) (*Manifest, error) {
 
 Run: `go test ./internal/manifest/...`
 
-Expected: `ok  	github.com/torstendittmann/composer-go/internal/manifest`.
+Expected: `ok  	github.com/torstendittmann/gomposer/internal/manifest`.
 
 - [ ] **Step 5: Commit**
 
@@ -439,7 +439,7 @@ Create `internal/manifest/autoload.go`:
 package manifest
 
 // Autoload mirrors the autoload / autoload-dev sections of composer.json.
-// PSR0 is parsed but composer-go intentionally does not generate PSR-0
+// PSR0 is parsed but gomposer intentionally does not generate PSR-0
 // loaders; consumers should warn when PSR0 is non-empty.
 type Autoload struct {
 	PSR4     map[string]string `json:"psr-4,omitempty"`
@@ -1310,7 +1310,7 @@ import (
 func TestRoundTrip(t *testing.T) {
 	in := &File{
 		SchemaVersion:       1,
-		Generator:           Generator{Name: "composer-go", Version: "0.0.0-test"},
+		Generator:           Generator{Name: "gomposer", Version: "0.0.0-test"},
 		ManifestContentHash: "sha256:abc",
 		PlatformFingerprint: "php-8.2.0;ext-mbstring",
 		Stability:           Stability{MinimumStability: "stable", PreferStable: true},
@@ -1370,10 +1370,10 @@ Expected: build error on `File`, `Encode`, `Decode`.
 Create `internal/lock/lock.go`:
 
 ```go
-// Package lock handles composer-go.lock read and write.
+// Package lock handles gomposer.lock read and write.
 //
 // The on-disk format is documented in
-// docs/superpowers/specs/2026-05-07-composer-go-design.md (section "Lockfile
+// docs/superpowers/specs/2026-05-07-gomposer-design.md (section "Lockfile
 // format"). Field renames here MUST be reflected in the spec.
 package lock
 
@@ -1457,7 +1457,7 @@ func Decode(data []byte) (*File, error) {
 		return nil, fmt.Errorf("lock: decode: %w", err)
 	}
 	if f.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("lock: unsupported schemaVersion %d (this build supports %d) — delete composer-go.lock to rebuild", f.SchemaVersion, SchemaVersion)
+		return nil, fmt.Errorf("lock: unsupported schemaVersion %d (this build supports %d) — delete gomposer.lock to rebuild", f.SchemaVersion, SchemaVersion)
 	}
 	return &f, nil
 }
@@ -1473,7 +1473,7 @@ Expected: PASS.
 
 ```bash
 git add internal/lock
-git commit -m "feat(lock): composer-go.lock schema + deterministic round-trip"
+git commit -m "feat(lock): gomposer.lock schema + deterministic round-trip"
 ```
 
 ---
@@ -1541,7 +1541,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 func newInstallCmd() *cobra.Command {
@@ -1585,10 +1585,10 @@ Expected: all PASS in `manifest`, `constraint`, `lock`, `cli`.
 
 Run:
 ```bash
-go build ./cmd/composer-go
+go build ./cmd/gomposer
 mkdir -p /tmp/cg-smoke && cd /tmp/cg-smoke
 echo '{"name":"vendor/pkg","require":{"monolog/monolog":"^3.0"}}' > composer.json
-$OLDPWD/composer-go install
+$OLDPWD/gomposer install
 ```
 
 Expected: `manifest vendor/pkg with 1 direct requires`.
@@ -1608,9 +1608,9 @@ git commit -m "feat(cli): install reads and parses composer.json"
 After all tasks:
 
 - `go test ./...` is green.
-- `go build ./cmd/composer-go` produces a binary.
-- `composer-go install` in a directory with a valid `composer.json` prints the manifest summary.
-- `composer-go install` in a directory with no `composer.json` exits non-zero with a clear error.
+- `go build ./cmd/gomposer` produces a binary.
+- `gomposer install` in a directory with a valid `composer.json` prints the manifest summary.
+- `gomposer install` in a directory with no `composer.json` exits non-zero with a clear error.
 - The types `manifest.Manifest`, `constraint.Version`, `constraint.Constraint`, `lock.File`, `lock.Package`, `lock.Source`, `lock.Dist` are stable enough for plans 2–6 to depend on.
 
 If any of these fails, fix forward in a follow-up commit before declaring Plan 1 done.

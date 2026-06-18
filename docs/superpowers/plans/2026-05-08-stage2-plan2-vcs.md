@@ -50,15 +50,15 @@
 ## Task 1: Manifest — parse `repositories`
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/manifest.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/repository.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/repository_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/manifest.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/repository.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/repository_test.go`
 
 `composer.json`'s `repositories` may be an array of objects or (legacy) a map keyed by name. Stage 2 only needs the array form; we error out clearly on the map form so users know to upgrade. We also reject `"type": "composer"`, `"path"`, `"package"`, `"artifact"` for stage 2 with a stable error code message.
 
 - [ ] **Step 1: Failing test for the new field**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/manifest_test.go` (create the file if it doesn't exist):
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/manifest_test.go` (create the file if it doesn't exist):
 
 ```go
 package manifest
@@ -113,7 +113,7 @@ Expected: build error on `m.Repositories`.
 
 - [ ] **Step 3: Implement `Repository` and re-shape Parse**
 
-Replace `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/manifest.go`:
+Replace `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/manifest.go`:
 
 ```go
 // Package manifest parses composer.json files into a structured form.
@@ -126,7 +126,7 @@ import (
 )
 
 // Manifest is the parsed view of a composer.json file. Fields not yet
-// supported by composer-go are omitted; unknown fields in the input are
+// supported by gomposer are omitted; unknown fields in the input are
 // ignored silently for forward-compatibility with future Composer features.
 type Manifest struct {
 	Name             string            `json:"name"`
@@ -186,7 +186,7 @@ func parseRepositories(data []byte) ([]Repository, error) {
 		case '[':
 			return parseRepositoriesArray(data)
 		case '{':
-			return nil, fmt.Errorf("manifest: legacy map form of `repositories` is not supported; use the array form (composer-go CG203)")
+			return nil, fmt.Errorf("manifest: legacy map form of `repositories` is not supported; use the array form (gomposer CG203)")
 		case 'f': // false / disable-defaults convention
 			return nil, nil
 		}
@@ -219,7 +219,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Add validation helpers**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/repository.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/repository.go`:
 
 ```go
 package manifest
@@ -262,7 +262,7 @@ func (r Repository) Validate() error {
 }
 ```
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/repository_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/repository_test.go`:
 
 ```go
 package manifest
@@ -321,14 +321,14 @@ git commit -m "feat(manifest): parse repositories array; reject legacy + unsuppo
 ## Task 2: Constraint — explicit `dev-<branch>` predicate
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/constraint.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/constraint_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/constraint.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/constraint_test.go`
 
 Composer treats a constraint that is literally `dev-<branch>` (or `dev-<branch>#<ref>`) as a stability override for that single requirement: the dev version is admitted regardless of `minimum-stability`. We need a way for the resolver to detect that case.
 
 - [ ] **Step 1: Failing test**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/constraint_test.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/constraint_test.go`:
 
 ```go
 func TestIsExplicitDev(t *testing.T) {
@@ -365,7 +365,7 @@ Expected: build error on `IsExplicitDev`.
 
 - [ ] **Step 3: Implement**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/constraint.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/constraint.go`:
 
 ```go
 // IsExplicitDev reports whether the constraint is a single literal
@@ -428,14 +428,14 @@ git commit -m "feat(constraint): IsExplicitDev predicate for stability-override 
 ## Task 3: Resolver — admit explicit `dev-*` requires under stricter minStab
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/resolver/versions.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/resolver/versions_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/resolver/versions.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/resolver/versions_test.go`
 
 Today `versions.go` filters by `minStab` only. We add a per-package allowlist of explicit-dev branches contributed by the manifest's `require`/`require-dev`. When a branch is on the allowlist, the dev version passes the stability gate even when `minStab > Dev`.
 
 - [ ] **Step 1: Failing test**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/resolver/versions_test.go` (or create if absent):
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/resolver/versions_test.go` (or create if absent):
 
 ```go
 package resolver
@@ -444,7 +444,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 type fakeLookup struct {
@@ -513,7 +513,7 @@ Expected: build error on `vl.AllowDevBranch`.
 
 - [ ] **Step 3: Implement allowlist**
 
-Edit `/Users/torstendittmann/Documents/skunk/composer-go/internal/resolver/versions.go`. Replace the struct and the `versions` method to consult the new map:
+Edit `/Users/torstendittmann/Documents/skunk/gomposer/internal/resolver/versions.go`. Replace the struct and the `versions` method to consult the new map:
 
 ```go
 type versionLister struct {
@@ -570,7 +570,7 @@ Then update the filter loop in `versions()`:
 
 - [ ] **Step 4: Wire into Solve**
 
-In `/Users/torstendittmann/Documents/skunk/composer-go/internal/resolver/solve.go`, after `vl := newVersionLister(...)` add a pass over the manifest's direct requires to register explicit-dev branches:
+In `/Users/torstendittmann/Documents/skunk/gomposer/internal/resolver/solve.go`, after `vl := newVersionLister(...)` add a pass over the manifest's direct requires to register explicit-dev branches:
 
 ```go
 	// Stability flags: explicit "dev-<branch>" requires admit that branch
@@ -592,7 +592,7 @@ In `/Users/torstendittmann/Documents/skunk/composer-go/internal/resolver/solve.g
 	}
 ```
 
-(Add `"github.com/torstendittmann/composer-go/internal/constraint"` to the imports of `solve.go` if missing.)
+(Add `"github.com/torstendittmann/gomposer/internal/constraint"` to the imports of `solve.go` if missing.)
 
 - [ ] **Step 5: Run tests**
 
@@ -612,8 +612,8 @@ git commit -m "feat(resolver): explicit dev-<branch> requires bypass minimum-sta
 ## Task 4: Multi-source aggregator
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/multisource/multisource.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/multisource/multisource_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/multisource/multisource.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/multisource/multisource_test.go`
 
 The aggregator queries each child in order. The first non-error, non-`ErrPackageNotFound` result wins. Genuine errors (network, timeout) propagate immediately — we do not fall through to a later source on a failed lookup, which matches Composer's "first repository wins" semantics and avoids accidentally serving stale data when a primary source is briefly down.
 
@@ -629,7 +629,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 type stubSource struct {
@@ -704,7 +704,7 @@ func TestAggregatorEmpty(t *testing.T) {
 
 - [ ] **Step 2: Implement**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/multisource/multisource.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/multisource/multisource.go`:
 
 ```go
 // Package multisource aggregates multiple registry.SourceLookup
@@ -718,7 +718,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Aggregator implements registry.SourceLookup over an ordered list of
@@ -769,14 +769,14 @@ git commit -m "feat(registry/multisource): ordered fan-out aggregator"
 ## Task 5: Git command wrapper
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/git.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/git_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/git.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/git_test.go`
 
 A small typed wrapper around `git` so the rest of the code calls `git.LsRemote(ctx, dir)` rather than building `exec.Cmd`s by hand. Tests exercise it against a real bare repo created in `t.TempDir()`.
 
 - [ ] **Step 1: Failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/git_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/git_test.go`:
 
 ```go
 package vcs
@@ -857,7 +857,7 @@ func TestLsRemoteAndShow(t *testing.T) {
 
 - [ ] **Step 2: Implement**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/git.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/git.go`:
 
 ```go
 // Package vcs implements registry.SourceLookup backed by `git`. We shell
@@ -1027,14 +1027,14 @@ git commit -m "feat(vcs): typed wrapper around git ls-remote/show/clone"
 ## Task 6: VCS client — package-name discovery
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`
 
 The first feature of the VCS client is *self-naming*: given a clone URL, resolve which package this repo defines by reading `composer.json#name` on the default branch. The orchestrator uses that to know whether a `Lookup("acme/widget")` should consult this client at all.
 
 - [ ] **Step 1: Failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`:
 
 ```go
 package vcs
@@ -1064,7 +1064,7 @@ func TestClientReportsPackageName(t *testing.T) {
 
 - [ ] **Step 2: Implement Config + Client + PackageName**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs.go`:
 
 ```go
 package vcs
@@ -1081,8 +1081,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/torstendittmann/composer-go/internal/cache/parsedcache"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/cache/parsedcache"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // Config configures a single VCS-backed lookup. One Config corresponds to
@@ -1222,8 +1222,8 @@ git commit -m "feat(vcs): Client.PackageName resolves repo URL to composer.json 
 ## Task 7: VCS client — enumerate refs as PackageVersions
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`
 
 For each tag and each tracked branch we synthesize a `PackageVersion`:
 - Tags become their tag name (with leading `v` tolerated by `constraint.ParseVersion`).
@@ -1232,14 +1232,14 @@ For each tag and each tracked branch we synthesize a `PackageVersion`:
 
 - [ ] **Step 1: Failing test for tags**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`:
 
 ```go
 import (
 	"os/exec"
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // makeBareRepoMulti creates a bare repo with the given files committed on
@@ -1332,7 +1332,7 @@ Add `"errors"` to the test imports if missing.
 
 - [ ] **Step 2: Implement Lookup**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs.go`:
 
 ```go
 // Lookup implements registry.SourceLookup. The first call enumerates refs
@@ -1488,14 +1488,14 @@ git commit -m "feat(vcs): Lookup enumerates refs as PackageVersions with parsedc
 ## Task 8: Branch aliases (`extra.branch-alias`)
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/alias.go`
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/alias_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/alias.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/alias_test.go`
 
 `extra.branch-alias` is a map from a dev-version to an aliased dev-version. The most common case is `"dev-main": "1.x-dev"`, which means: callers requiring `^1.0` (or `~1.0`, etc.) should be able to find `dev-main`. The aliased form (`1.x-dev`) parses as a numeric dev version and matches numeric range constraints — so we synthesize an extra `PackageVersion` row carrying that aliased version string. The original `dev-main` row stays so `require: dev-main` still works.
 
 - [ ] **Step 1: Failing test**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/alias_test.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/alias_test.go`:
 
 ```go
 package vcs
@@ -1559,7 +1559,7 @@ func TestExpandAliases(t *testing.T) {
 
 - [ ] **Step 2: Implement**
 
-Create `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/alias.go`:
+Create `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/alias.go`:
 
 ```go
 package vcs
@@ -1589,7 +1589,7 @@ func expandAliases(ver string, aliases map[string]string) []string {
 
 - [ ] **Step 3: Add an integration test**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`:
 
 ```go
 func TestClientExposesBranchAliasVersion(t *testing.T) {
@@ -1638,14 +1638,14 @@ git commit -m "feat(vcs): expand extra.branch-alias into synthesized PackageVers
 ## Task 9: Constraint matches `1.x-dev` aliased versions
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/constraint_test.go`
-- Possibly modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/version.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/constraint_test.go`
+- Possibly modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/version.go`
 
 A `1.x-dev` version must parse: major=1, minor=∞-ish, stability=Dev. The current parser does not recognise the `x-dev` suffix. Add support so `^1.0` matches it.
 
 - [ ] **Step 1: Failing test**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/constraint_test.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/constraint_test.go`:
 
 ```go
 func TestParseAliasVersion1xDev(t *testing.T) {
@@ -1679,7 +1679,7 @@ func TestCaretMatches1xDev(t *testing.T) {
 
 - [ ] **Step 2: Implement parser support for `<major>.x-dev` and `<major>.<minor>.x-dev`**
 
-Modify `/Users/torstendittmann/Documents/skunk/composer-go/internal/constraint/version.go`. At the top of `ParseVersion`, after the leading-`v` strip, handle the alias form:
+Modify `/Users/torstendittmann/Documents/skunk/gomposer/internal/constraint/version.go`. At the top of `ParseVersion`, after the leading-`v` strip, handle the alias form:
 
 ```go
 	// Alias form: "1.x-dev", "1.2.x-dev", "1.x", "1.2.x" (Composer treats
@@ -1766,7 +1766,7 @@ git commit -m "feat(constraint): parse and order <N>.x-dev branch-alias versions
 ## Task 10: VCS lookup short-circuits when name is not its own
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`
 
 Already partially exercised by `TestClientLookupWrongPackageName`. Add a stronger test confirming we do not even hit the network when we know the configured URL serves a different package.
 
@@ -1815,8 +1815,8 @@ git commit -m "test(vcs): negative-name lookup avoids re-hitting git"
 ## Task 11: Builder — `vcs.NewFromManifest`
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`
 
 A small helper turns a slice of `manifest.Repository` into a slice of `*Client`. The orchestrator calls this and passes the result to `multisource.New(packagistClient, vcsClients...)`.
 
@@ -1826,7 +1826,7 @@ Append to `vcs_test.go`:
 
 ```go
 import (
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 func TestNewFromManifest(t *testing.T) {
@@ -1865,12 +1865,12 @@ func TestNewFromManifestSkipsUnsupported(t *testing.T) {
 
 - [ ] **Step 2: Implement**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs.go`:
 
 ```go
 import (
 	// ... existing imports ...
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 ```
 
@@ -1928,7 +1928,7 @@ git commit -m "feat(vcs): NewFromManifest helper for orchestrator wiring"
 ## Task 12: Multisource adapts a slice of `*vcs.Client`
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/multisource/multisource_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/multisource/multisource_test.go`
 
 A typed-slice helper avoids the orchestrator having to write a manual conversion to `[]registry.SourceLookup`.
 
@@ -1938,7 +1938,7 @@ Append:
 
 ```go
 import (
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 type stubByName map[string]*registry.PackageMetadata
@@ -1962,7 +1962,7 @@ func TestNewWithLookups(t *testing.T) {
 
 - [ ] **Step 2: Implement**
 
-Append to `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/multisource/multisource.go`:
+Append to `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/multisource/multisource.go`:
 
 ```go
 // NewWithLookups is identical to New but takes a slice. Useful when the
@@ -1991,7 +1991,7 @@ git commit -m "feat(multisource): NewWithLookups slice constructor"
 ## Task 13: End-to-end resolver test against a VCS source
 
 **Files:**
-- Create: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/integration_test.go`
+- Create: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/integration_test.go`
 
 Wire `vcs.Client` + `multisource.Aggregator` into the resolver and confirm a real resolution works for a constraint that targets a tagged version, a `dev-main` constraint, and a `^1.0` constraint that hits a `1.x-dev` alias.
 
@@ -2007,9 +2007,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry/multisource"
-	"github.com/torstendittmann/composer-go/internal/resolver"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry/multisource"
+	"github.com/torstendittmann/gomposer/internal/resolver"
 )
 
 func TestResolverFindsTaggedVersion(t *testing.T) {
@@ -2108,7 +2108,7 @@ git commit -m "test(vcs): resolver picks tagged, dev-main, and aliased versions"
 ## Task 14: Live network smoke test (skipped by default)
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs_test.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs_test.go`
 
 A confidence test against a stable public repo, gated on an env var so it does not run on CI by default.
 
@@ -2116,8 +2116,8 @@ A confidence test against a stable public repo, gated on an env var so it does n
 
 ```go
 func TestLiveLookupPublicRepo(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run")
 	}
 	c, err := New(Config{
 		URL:       "https://github.com/Seldaek/monolog.git",
@@ -2145,7 +2145,7 @@ func TestLiveLookupPublicRepo(t *testing.T) {
 
 - [ ] **Step 2: Run gated**
 
-Run: `COMPOSER_GO_LIVE_NETWORK=1 go test ./internal/registry/vcs/... -run TestLive -v`
+Run: `GOMPOSER_LIVE_NETWORK=1 go test ./internal/registry/vcs/... -run TestLive -v`
 
 Expected: PASS, lots of versions.
 
@@ -2167,8 +2167,8 @@ git commit -m "test(vcs): live-network smoke test gated on env var"
 ## Task 15: Documentation comments on the public surface
 
 **Files:**
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/registry/vcs/vcs.go`
-- Modify: `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/manifest.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/registry/vcs/vcs.go`
+- Modify: `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/manifest.go`
 
 A short package-level doc comment for `vcs` and updated comment on `Manifest.Repositories` clarifying invariants for downstream readers.
 
@@ -2205,7 +2205,7 @@ Replace the package-doc comment at the top of `vcs.go` with the following text (
 
 - [ ] **Step 2: Tighten `Manifest.Repositories` comment**
 
-Edit `/Users/torstendittmann/Documents/skunk/composer-go/internal/manifest/manifest.go` and replace the comment on `Repositories` with:
+Edit `/Users/torstendittmann/Documents/skunk/gomposer/internal/manifest/manifest.go` and replace the comment on `Repositories` with:
 
 ```go
 	// Repositories holds user-defined repository entries, in declaration
@@ -2236,7 +2236,7 @@ Run all of these:
 
 - `go test ./...` is green offline (with `git` available in PATH; the VCS tests skip otherwise).
 - `go vet ./...` is clean.
-- `COMPOSER_GO_LIVE_NETWORK=1 go test ./internal/registry/vcs/... -run TestLive` clones a real public repo and finds at least five published versions.
+- `GOMPOSER_LIVE_NETWORK=1 go test ./internal/registry/vcs/... -run TestLive` clones a real public repo and finds at least five published versions.
 - A composer.json with a single VCS repo and `require: { acme/widget: "^1.0" }` resolves to the highest matching tag.
 - The same project with `require: { acme/widget: "dev-main" }` resolves to the branch even if `minimum-stability` is unset.
 - The same project with `require: { acme/widget: "^1.0" }` and `minimum-stability: dev` and a `branch-alias` of `{"dev-main":"1.x-dev"}` resolves to the aliased branch.

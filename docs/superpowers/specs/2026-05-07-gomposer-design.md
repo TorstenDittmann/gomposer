@@ -1,4 +1,4 @@
-# composer-go: a fast Go-based PHP package manager
+# gomposer: a fast Go-based PHP package manager
 
 - **Date:** 2026-05-07
 - **Status:** Approved (brainstorm)
@@ -6,14 +6,14 @@
 
 ## Summary
 
-`composer-go` is a Go reimplementation of the install/update path of Composer (PHP's package manager), focused on raw speed. It reads existing `composer.json` files unchanged, resolves dependencies against Packagist and arbitrary git VCS repositories, generates Composer-compatible autoloaders, and runs install scripts. It writes its own lockfile (`composer-go.lock`) rather than `composer.lock`, and it intentionally does not implement Composer's plugin system.
+`gomposer` is a Go reimplementation of the install/update path of Composer (PHP's package manager), focused on raw speed. It reads existing `composer.json` files unchanged, resolves dependencies against Packagist and arbitrary git VCS repositories, generates Composer-compatible autoloaders, and runs install scripts. It writes its own lockfile (`gomposer.lock`) rather than `composer.lock`, and it intentionally does not implement Composer's plugin system.
 
 ## Goals
 
 - Install/update is meaningfully faster than Composer 2 on both warm and cold caches.
 - Compatible consumer of existing `composer.json` (no manifest migration required).
 - Real-world Laravel and Symfony skeleton projects install end-to-end and boot.
-- Single static binary; no PHP required to install `composer-go` itself (PHP is required at install-time of the user's project for platform detection and PHP-callable scripts).
+- Single static binary; no PHP required to install `gomposer` itself (PHP is required at install-time of the user's project for platform detection and PHP-callable scripts).
 
 ## Non-goals
 
@@ -61,8 +61,8 @@
 ```
 
 - **Concurrency model:** `errgroup` with a bounded worker pool per phase (metadata fetch, package fetch, extract, autoloader scan). Cancellation is cooperative via `context.Context`.
-- **State location:** caches at `$XDG_CACHE_HOME/composer-go/` (or `~/Library/Caches/composer-go/` on macOS). Credentials read from both `~/.composer/auth.json` and `~/.config/composer-go/auth.json`; the latter wins on conflict.
-- **Filesystem strategy:** package store defaults to `<project>/.composer-go/store` so reflinks/clonefile can hardlink into `vendor/` on the same filesystem. Falls back to copy if the store is on a different filesystem from the project.
+- **State location:** caches at `$XDG_CACHE_HOME/gomposer/` (or `~/Library/Caches/gomposer/` on macOS). Credentials read from both `~/.composer/auth.json` and `~/.config/gomposer/auth.json`; the latter wins on conflict.
+- **Filesystem strategy:** package store defaults to `<project>/.gomposer/store` so reflinks/clonefile can hardlink into `vendor/` on the same filesystem. Falls back to copy if the store is on a different filesystem from the project.
 
 ## Caching and optimistic operations
 
@@ -97,7 +97,7 @@ Four caching layers and two optimistic operations are baked in. Layers 1, 2, and
 - Concurrent zip download with pipelined extract. **Optimistic op 2.**
 - PSR-4 autoloader output.
 
-**Acceptance.** `composer-go install` on a small real Packagist project (e.g., something depending on `monolog/monolog`) succeeds and the generated autoloader resolves classes. Repeat install on a warm cache completes in under 100ms.
+**Acceptance.** `gomposer install` on a small real Packagist project (e.g., something depending on `monolog/monolog`) succeeds and the generated autoloader resolves classes. Repeat install on a warm cache completes in under 100ms.
 
 ### Stage 2 — Real-world coverage (Laravel/Symfony work)
 
@@ -110,7 +110,7 @@ Four caching layers and two optimistic operations are baked in. Layers 1, 2, and
 - Platform req detection: one-shot `php -r` at startup, capture version + loaded extensions.
 - Platform constraint enforcement in resolver — warnings by default; hard error when `--no-dev` is set.
 - VCS (git) repository support: clone, enumerate tags/branches, build per-version metadata from each ref's `composer.json`, cache aggressively.
-- Auth: parse `~/.composer/auth.json` and `~/.config/composer-go/auth.json` (latter wins on conflict). Support `http-basic`, `bearer`, `github-oauth`, `gitlab-token`. SSH delegated to system `git`.
+- Auth: parse `~/.composer/auth.json` and `~/.config/gomposer/auth.json` (latter wins on conflict). Support `http-basic`, `bearer`, `github-oauth`, `gitlab-token`. SSH delegated to system `git`.
 - Script runner: execute string commands via `sh -c`; execute `Class::method` references via a `php -r` shim.
 - Plugin detection — packages with `"type": "composer-plugin"` (and references in `extra.composer-plugin-*`) are detected and ignored with a per-package warning.
 
@@ -157,7 +157,7 @@ JSON for diff-friendliness, with a sidecar binary cache for fast loads on warm r
 ```
 {
   "schemaVersion": 1,
-  "generator": { "name": "composer-go", "version": "..." },
+  "generator": { "name": "gomposer", "version": "..." },
   "manifestContentHash": "sha256:...",
   "platformFingerprint": "php-8.2.x;ext-mbstring;ext-json;...",
   "stability": { "minimumStability": "stable", "preferStable": true },
@@ -197,12 +197,12 @@ PubGrub over a custom SAT solver. Reasons:
 ### Project layout
 
 ```
-composer-go/
-├── cmd/composer-go/         # CLI entrypoint, thin
+gomposer/
+├── cmd/gomposer/         # CLI entrypoint, thin
 ├── internal/
 │   ├── cli/                 # cobra commands
 │   ├── manifest/            # composer.json parsing
-│   ├── lock/                # composer-go.lock read/write
+│   ├── lock/                # gomposer.lock read/write
 │   ├── constraint/          # PHP version constraint logic
 │   ├── resolver/            # PubGrub
 │   ├── registry/            # packagist + vcs metadata sources

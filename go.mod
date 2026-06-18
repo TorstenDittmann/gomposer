@@ -1,4 +1,4 @@
-module github.com/torstendittmann/composer-go
+module github.com/torstendittmann/gomposer
 
 go 1.25.0
 

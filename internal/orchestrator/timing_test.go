@@ -80,7 +80,7 @@ func TestTimingsRender(t *testing.T) {
 	got := buf.String()
 
 	want := []string{
-		"composer-go: timing",
+		"gomposer: timing",
 		"read manifest        1 ms",
 		"resolve             50 ms (12 packages)",
 		"fetch              200 ms (8/12 cold, 512 KB)",

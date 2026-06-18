@@ -2,26 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a `cmd/bench` Go binary that runs `composer-go install` and `composer install` over a fixed fixture corpus and reports cold/warm/lock-unchanged wall times. Output is a markdown table suitable for pasting into the README. The harness is the foundation for the Stage 3 acceptance bar from the design spec ("warm-cache and lock-unchanged installs >=5x faster than Composer; cold installs >=2x faster"). After this plan, contributors run `go run ./cmd/bench --corpus cmd/bench/testdata/corpus --runs 5` on their own machines and produce reproducible numbers we can quote in the README and the spec.
+**Goal:** Build a `cmd/bench` Go binary that runs `gomposer install` and `composer install` over a fixed fixture corpus and reports cold/warm/lock-unchanged wall times. Output is a markdown table suitable for pasting into the README. The harness is the foundation for the Stage 3 acceptance bar from the design spec ("warm-cache and lock-unchanged installs >=5x faster than Composer; cold installs >=2x faster"). After this plan, contributors run `go run ./cmd/bench --corpus cmd/bench/testdata/corpus --runs 5` on their own machines and produce reproducible numbers we can quote in the README and the spec.
 
 **Architecture:**
 
-- The bench binary is a self-contained CLI separate from `cmd/composer-go`. It shells out to two binaries (the user's `composer-go` build and `composer`) and times their wall clock with `time.Now()` around `exec.Cmd.Run()`.
+- The bench binary is a self-contained CLI separate from `cmd/gomposer`. It shells out to two binaries (the user's `gomposer` build and `composer`) and times their wall clock with `time.Now()` around `exec.Cmd.Run()`.
 - Each fixture is a directory under `cmd/bench/testdata/corpus/` containing a `composer.json`. Fixtures are committed to the repository so benchmarks are reproducible. The harness copies a fixture into a temp directory before every run; the original under `testdata/` is never mutated.
 - For each `(fixture, scenario, tool)` tuple the runner repeats `--runs N` times and reports the **median** wall time. Median (not mean) is robust to one slow outlier from network jitter or a cold OS file cache.
 - The three scenarios are scripted by `prepareScenario(scenario, dir, tool)`:
-  - **cold:** `rm -rf vendor composer-go.lock composer.lock` before *each* run. Forces a full resolve + download.
+  - **cold:** `rm -rf vendor gomposer.lock composer.lock` before *each* run. Forces a full resolve + download.
   - **warm:** run the tool once before timing to warm the metadata HTTP cache and the content-addressed package store. Before each timed run, only `rm -rf vendor` is removed; lockfile and caches stay.
-  - **lock-unchanged:** run the tool once before timing to populate everything. Each timed run starts from a fully populated state and should be near-instant — this is the scenario where composer-go's resolution-result cache shines.
-- Output rendering lives in `report.go`. The default mode is markdown; columns are `Fixture | Scenario | composer-go | composer | speed-up`. Speed-up is `composer / composer-go` rounded to one decimal place. Sorted by fixture name then scenario in the canonical order `cold, warm, lock-unchanged`.
-- Tests live alongside the source. **No test in CI invokes a real composer or composer-go binary.** Instead, `runner.go` accepts an injectable command runner; tests pass a fake that returns canned durations.
+  - **lock-unchanged:** run the tool once before timing to populate everything. Each timed run starts from a fully populated state and should be near-instant — this is the scenario where gomposer's resolution-result cache shines.
+- Output rendering lives in `report.go`. The default mode is markdown; columns are `Fixture | Scenario | gomposer | composer | speed-up`. Speed-up is `composer / gomposer` rounded to one decimal place. Sorted by fixture name then scenario in the canonical order `cold, warm, lock-unchanged`.
+- Tests live alongside the source. **No test in CI invokes a real composer or gomposer binary.** Instead, `runner.go` accepts an injectable command runner; tests pass a fake that returns canned durations.
 
 **Tech Stack:** Go 1.22+, standard library only (`os/exec`, `time`, `flag`, `encoding/json`, `path/filepath`, `sort`). No new third-party deps.
 
 **Depends on:**
-- **Stage 1 complete.** `composer-go install` works end-to-end on Packagist projects and the four cache layers exist.
+- **Stage 1 complete.** `gomposer install` works end-to-end on Packagist projects and the four cache layers exist.
 - **Stage 2 complete.** Real-world Laravel and Symfony skeletons install. Without Stage 2 the `laravel-skeleton` and `symfony-skeleton` fixtures cannot resolve (platform reqs + VCS metadata + classmap autoloader are all required).
-- The harness does not import any `internal/` package — it talks to composer-go strictly through its CLI surface, exactly as a user would. This is a deliberate boundary so benchmarks measure the same thing users experience.
+- The harness does not import any `internal/` package — it talks to gomposer strictly through its CLI surface, exactly as a user would. This is a deliberate boundary so benchmarks measure the same thing users experience.
 
 ---
 
@@ -58,9 +58,9 @@ These fixtures are committed verbatim. Bench tests do not exercise them; the har
 
 ```json
 {
-  "name": "composer-go-bench/tiny-psrlog",
+  "name": "gomposer-bench/tiny-psrlog",
   "type": "library",
-  "description": "Single-package leaf fixture for composer-go benchmarks.",
+  "description": "Single-package leaf fixture for gomposer benchmarks.",
   "require": {
     "psr/log": "^3.0"
   }
@@ -71,7 +71,7 @@ These fixtures are committed verbatim. Bench tests do not exercise them; the har
 
 ```json
 {
-  "name": "composer-go-bench/monolog",
+  "name": "gomposer-bench/monolog",
   "type": "library",
   "description": "Small real-world fixture exercising 3-4 transitive deps.",
   "require": {
@@ -86,7 +86,7 @@ Copy a representative subset of `laravel/laravel`'s `composer.json`. Pin the maj
 
 ```json
 {
-  "name": "composer-go-bench/laravel-skeleton",
+  "name": "gomposer-bench/laravel-skeleton",
   "type": "project",
   "description": "Subset of laravel/laravel for benchmarking.",
   "require": {
@@ -110,7 +110,7 @@ Copy a representative subset of `laravel/laravel`'s `composer.json`. Pin the maj
 
 ```json
 {
-  "name": "composer-go-bench/symfony-skeleton",
+  "name": "gomposer-bench/symfony-skeleton",
   "type": "project",
   "description": "Subset of symfony/skeleton for benchmarking.",
   "require": {
@@ -414,7 +414,7 @@ func ParseScenario(s string) (Scenario, error) {
 type Tool string
 
 const (
-	ToolComposerGo Tool = "composer-go"
+	ToolGomposer Tool = "gomposer"
 	ToolComposer   Tool = "composer"
 )
 
@@ -423,7 +423,7 @@ type Plan struct {
 	Fixtures        []Fixture
 	Scenarios       []Scenario
 	Runs            int
-	ComposerGoPath  string
+	GomposerPath  string
 	ComposerPath    string
 }
 
@@ -484,7 +484,7 @@ git commit -m "feat(bench): runner types, CmdRunner interface, median helper"
 - Modify: `cmd/bench/runner.go`
 - Modify: `cmd/bench/runner_test.go`
 
-Each scenario maps to a deterministic filesystem-prep step. Cold rips out vendor, both lockfiles, and (separately) any cached `.composer-go/store` so the run actually re-downloads. Warm and lock-unchanged require a "warmup" install once before the timed runs; that warmup is also a `CmdRunner.Run` call.
+Each scenario maps to a deterministic filesystem-prep step. Cold rips out vendor, both lockfiles, and (separately) any cached `.gomposer/store` so the run actually re-downloads. Warm and lock-unchanged require a "warmup" install once before the timed runs; that warmup is also a `CmdRunner.Run` call.
 
 - [ ] **Step 1: Append failing test**
 
@@ -501,7 +501,7 @@ func TestPrepareColdRemovesVendorAndLocks(t *testing.T) {
 	for _, p := range []string{
 		filepath.Join(dir, "vendor", "psr", "log"),
 		filepath.Join(dir, "composer.lock"),
-		filepath.Join(dir, "composer-go.lock"),
+		filepath.Join(dir, "gomposer.lock"),
 	} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -513,7 +513,7 @@ func TestPrepareColdRemovesVendorAndLocks(t *testing.T) {
 	if err := prepareScenario(ScenarioCold, dir); err != nil {
 		t.Fatalf("prepareScenario: %v", err)
 	}
-	for _, p := range []string{"vendor", "composer.lock", "composer-go.lock"} {
+	for _, p := range []string{"vendor", "composer.lock", "gomposer.lock"} {
 		if _, err := os.Stat(filepath.Join(dir, p)); !os.IsNotExist(err) {
 			t.Errorf("%s should be removed: %v", p, err)
 		}
@@ -525,7 +525,7 @@ func TestPrepareWarmRemovesOnlyVendor(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "composer-go.lock"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := prepareScenario(ScenarioWarm, dir); err != nil {
@@ -534,14 +534,14 @@ func TestPrepareWarmRemovesOnlyVendor(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "vendor")); !os.IsNotExist(err) {
 		t.Error("vendor should be removed")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "composer-go.lock")); err != nil {
-		t.Error("composer-go.lock should be preserved on warm")
+	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
+		t.Error("gomposer.lock should be preserved on warm")
 	}
 }
 
 func TestPrepareLockUnchangedTouchesNothing(t *testing.T) {
 	dir := t.TempDir()
-	for _, p := range []string{"vendor/keep", "composer-go.lock"} {
+	for _, p := range []string{"vendor/keep", "gomposer.lock"} {
 		full := filepath.Join(dir, p)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -553,7 +553,7 @@ func TestPrepareLockUnchangedTouchesNothing(t *testing.T) {
 	if err := prepareScenario(ScenarioLockUnchanged, dir); err != nil {
 		t.Fatalf("prepareScenario: %v", err)
 	}
-	for _, p := range []string{"vendor/keep", "composer-go.lock"} {
+	for _, p := range []string{"vendor/keep", "gomposer.lock"} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 			t.Errorf("%s should be preserved on lock-unchanged: %v", p, err)
 		}
@@ -583,7 +583,7 @@ import (
 func prepareScenario(s Scenario, dir string) error {
 	switch s {
 	case ScenarioCold:
-		for _, rel := range []string{"vendor", "composer.lock", "composer-go.lock"} {
+		for _, rel := range []string{"vendor", "composer.lock", "gomposer.lock"} {
 			if err := os.RemoveAll(filepath.Join(dir, rel)); err != nil {
 				return fmt.Errorf("bench: prepare cold: rm %s: %w", rel, err)
 			}
@@ -688,7 +688,7 @@ func TestRunProducesOneResultPerTuple(t *testing.T) {
 		Fixtures:       []Fixture{f},
 		Scenarios:      []Scenario{ScenarioCold, ScenarioWarm, ScenarioLockUnchanged},
 		Runs:           3,
-		ComposerGoPath: "composer-go",
+		GomposerPath: "gomposer",
 		ComposerPath:   "composer",
 	}
 	fr := &fakeRunner{}
@@ -709,7 +709,7 @@ func TestRunReportsMedian(t *testing.T) {
 		Fixtures:       []Fixture{f},
 		Scenarios:      []Scenario{ScenarioCold},
 		Runs:           3,
-		ComposerGoPath: "cgo",
+		GomposerPath: "cgo",
 		ComposerPath:   "co",
 	}
 	durations := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 50 * time.Millisecond,
@@ -740,7 +740,7 @@ func TestRunSurfacesErrorFromCmdRunner(t *testing.T) {
 		Fixtures:       []Fixture{f},
 		Scenarios:      []Scenario{ScenarioCold},
 		Runs:           1,
-		ComposerGoPath: "cgo",
+		GomposerPath: "cgo",
 		ComposerPath:   "co",
 	}
 	fr := &fakeRunner{fn: func(int, string, string) (time.Duration, error) {
@@ -758,7 +758,7 @@ func TestRunDoesNotMutateOriginalFixture(t *testing.T) {
 		Fixtures:       []Fixture{f},
 		Scenarios:      []Scenario{ScenarioCold},
 		Runs:           1,
-		ComposerGoPath: "cgo",
+		GomposerPath: "cgo",
 		ComposerPath:   "co",
 	}
 	if _, err := Run(context.Background(), plan, &fakeRunner{}); err != nil {
@@ -829,7 +829,7 @@ func Run(ctx context.Context, plan Plan, runner CmdRunner) ([]Result, error) {
 		tool Tool
 		bin  string
 	}{
-		{ToolComposerGo, plan.ComposerGoPath},
+		{ToolGomposer, plan.GomposerPath},
 		{ToolComposer, plan.ComposerPath},
 	}
 
@@ -849,7 +849,7 @@ func Run(ctx context.Context, plan Plan, runner CmdRunner) ([]Result, error) {
 }
 
 func runOne(ctx context.Context, runner CmdRunner, fx Fixture, sc Scenario, tool Tool, bin string, runs int) (Result, error) {
-	work, err := os.MkdirTemp("", "composer-go-bench-")
+	work, err := os.MkdirTemp("", "gomposer-bench-")
 	if err != nil {
 		return Result{}, fmt.Errorf("mktemp: %w", err)
 	}
@@ -944,7 +944,7 @@ git commit -m "feat(bench): Run orchestration with fixture isolation and median 
 - Create: `cmd/bench/report.go`
 - Create: `cmd/bench/report_test.go`
 
-`RenderMarkdown(results)` produces a table sorted by fixture (alphabetical) and scenario (canonical `cold,warm,lock-unchanged` order). Each row pairs the composer-go and composer medians for the same `(fixture, scenario)` and computes the speed-up.
+`RenderMarkdown(results)` produces a table sorted by fixture (alphabetical) and scenario (canonical `cold,warm,lock-unchanged` order). Each row pairs the gomposer and composer medians for the same `(fixture, scenario)` and computes the speed-up.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -961,14 +961,14 @@ import (
 
 func TestRenderMarkdownIncludesHeader(t *testing.T) {
 	out := RenderMarkdown(nil)
-	if !strings.Contains(out, "| Fixture | Scenario | composer-go | composer | speed-up |") {
+	if !strings.Contains(out, "| Fixture | Scenario | gomposer | composer | speed-up |") {
 		t.Errorf("missing header in output:\n%s", out)
 	}
 }
 
 func TestRenderMarkdownPairsToolsAndComputesSpeedup(t *testing.T) {
 	results := []Result{
-		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolComposerGo, Median: 200 * time.Millisecond},
+		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolGomposer, Median: 200 * time.Millisecond},
 		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolComposer, Median: 1000 * time.Millisecond},
 	}
 	out := RenderMarkdown(results)
@@ -985,11 +985,11 @@ func TestRenderMarkdownPairsToolsAndComputesSpeedup(t *testing.T) {
 
 func TestRenderMarkdownSortsFixtureThenScenario(t *testing.T) {
 	results := []Result{
-		{Fixture: "zeta", Scenario: ScenarioWarm, Tool: ToolComposerGo, Median: 10 * time.Millisecond},
+		{Fixture: "zeta", Scenario: ScenarioWarm, Tool: ToolGomposer, Median: 10 * time.Millisecond},
 		{Fixture: "zeta", Scenario: ScenarioWarm, Tool: ToolComposer, Median: 100 * time.Millisecond},
-		{Fixture: "alpha", Scenario: ScenarioLockUnchanged, Tool: ToolComposerGo, Median: 5 * time.Millisecond},
+		{Fixture: "alpha", Scenario: ScenarioLockUnchanged, Tool: ToolGomposer, Median: 5 * time.Millisecond},
 		{Fixture: "alpha", Scenario: ScenarioLockUnchanged, Tool: ToolComposer, Median: 50 * time.Millisecond},
-		{Fixture: "alpha", Scenario: ScenarioCold, Tool: ToolComposerGo, Median: 100 * time.Millisecond},
+		{Fixture: "alpha", Scenario: ScenarioCold, Tool: ToolGomposer, Median: 100 * time.Millisecond},
 		{Fixture: "alpha", Scenario: ScenarioCold, Tool: ToolComposer, Median: 200 * time.Millisecond},
 	}
 	out := RenderMarkdown(results)
@@ -1007,9 +1007,9 @@ func TestRenderMarkdownSortsFixtureThenScenario(t *testing.T) {
 }
 
 func TestRenderMarkdownHandlesMissingTool(t *testing.T) {
-	// composer-go ran but composer was skipped.
+	// gomposer ran but composer was skipped.
 	results := []Result{
-		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolComposerGo, Median: 200 * time.Millisecond},
+		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolGomposer, Median: 200 * time.Millisecond},
 	}
 	out := RenderMarkdown(results)
 	if !strings.Contains(out, "n/a") {
@@ -1039,13 +1039,13 @@ import (
 )
 
 // RenderMarkdown returns a markdown table with one row per (fixture, scenario).
-// composer-go and composer medians are paired side by side; speed-up is
-// composer / composer-go rounded to one decimal.
+// gomposer and composer medians are paired side by side; speed-up is
+// composer / gomposer rounded to one decimal.
 //
 // Empty results produce a header-only table — useful for CI smoke tests.
 func RenderMarkdown(results []Result) string {
 	var b strings.Builder
-	b.WriteString("| Fixture | Scenario | composer-go | composer | speed-up |\n")
+	b.WriteString("| Fixture | Scenario | gomposer | composer | speed-up |\n")
 	b.WriteString("|---------|----------|-------------|----------|----------|\n")
 
 	type key struct {
@@ -1066,7 +1066,7 @@ func RenderMarkdown(results []Result) string {
 			pairs[k] = p
 		}
 		switch r.Tool {
-		case ToolComposerGo:
+		case ToolGomposer:
 			p.cgo = r
 		case ToolComposer:
 			p.co = r
@@ -1295,7 +1295,7 @@ Expected: build error on `parseFlags`.
 Create `cmd/bench/main.go`:
 
 ```go
-// Command bench measures composer-go install vs composer install over a fixed
+// Command bench measures gomposer install vs composer install over a fixed
 // corpus and prints a markdown report. It is a manual tool: nothing in CI
 // invokes the real binaries.
 //
@@ -1303,7 +1303,7 @@ Create `cmd/bench/main.go`:
 //
 //	go run ./cmd/bench \
 //	  --corpus cmd/bench/testdata/corpus \
-//	  --composer-go ./composer-go \
+//	  --gomposer ./gomposer \
 //	  --composer /usr/local/bin/composer \
 //	  --runs 5 \
 //	  --scenarios cold,warm,lock-unchanged
@@ -1323,7 +1323,7 @@ import (
 // parsing has no dependency on the corpus loader.
 type flagPlan struct {
 	Corpus     string
-	ComposerGo string
+	Gomposer string
 	Composer   string
 	Runs       int
 	Scenarios  []Scenario
@@ -1332,7 +1332,7 @@ type flagPlan struct {
 func parseFlags(argv []string) (*flagPlan, error) {
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
 	corpus := fs.String("corpus", "", "directory of fixtures (each subdirectory must contain composer.json)")
-	composerGo := fs.String("composer-go", "composer-go", "path to the composer-go binary")
+	gomposer := fs.String("gomposer", "gomposer", "path to the gomposer binary")
 	composer := fs.String("composer", "composer", "path to the composer binary")
 	runs := fs.Int("runs", 3, "number of timed runs per (fixture, scenario, tool); median is reported")
 	scenariosCSV := fs.String("scenarios", "cold,warm,lock-unchanged",
@@ -1366,7 +1366,7 @@ func parseFlags(argv []string) (*flagPlan, error) {
 
 	return &flagPlan{
 		Corpus:     *corpus,
-		ComposerGo: *composerGo,
+		Gomposer: *gomposer,
 		Composer:   *composer,
 		Runs:       *runs,
 		Scenarios:  scs,
@@ -1397,7 +1397,7 @@ func mainImpl(argv []string) error {
 		Fixtures:       fixtures,
 		Scenarios:      fp.Scenarios,
 		Runs:           fp.Runs,
-		ComposerGoPath: fp.ComposerGo,
+		GomposerPath: fp.Gomposer,
 		ComposerPath:   fp.Composer,
 	}
 
@@ -1439,12 +1439,12 @@ git commit -m "feat(bench): CLI entrypoint with --corpus/--runs/--scenarios flag
 **Files:**
 - None (manual verification only)
 
-This task verifies the harness works against the committed corpus using a real composer-go binary. We do NOT add this as a CI test (the spec is explicit that benchmarks are manual). The verification is documented here so contributors have a known-good recipe.
+This task verifies the harness works against the committed corpus using a real gomposer binary. We do NOT add this as a CI test (the spec is explicit that benchmarks are manual). The verification is documented here so contributors have a known-good recipe.
 
-- [ ] **Step 1: Build composer-go**
+- [ ] **Step 1: Build gomposer**
 
 ```bash
-go build -o composer-go ./cmd/composer-go
+go build -o gomposer ./cmd/gomposer
 ```
 
 - [ ] **Step 2: Run the bench against tiny-psrlog only**
@@ -1452,13 +1452,13 @@ go build -o composer-go ./cmd/composer-go
 ```bash
 go run ./cmd/bench \
   --corpus cmd/bench/testdata/corpus \
-  --composer-go ./composer-go \
+  --gomposer ./gomposer \
   --composer "$(which composer)" \
   --runs 3 \
   --scenarios cold,warm,lock-unchanged
 ```
 
-Expected: a markdown table on stdout. composer-go's `lock-unchanged` row should be in the low milliseconds (resolution-result cache hit). composer-go's `warm` row should be much faster than composer's `warm`. composer-go's `cold` row should be at least as fast as composer's `cold`.
+Expected: a markdown table on stdout. gomposer's `lock-unchanged` row should be in the low milliseconds (resolution-result cache hit). gomposer's `warm` row should be much faster than composer's `warm`. gomposer's `cold` row should be at least as fast as composer's `cold`.
 
 - [ ] **Step 3: Spot-check the speed-up column**
 
@@ -1488,14 +1488,14 @@ Append to (or create) `README.md`:
 ```markdown
 ## Benchmarks
 
-`cmd/bench` measures composer-go vs composer over a small fixture corpus and
+`cmd/bench` measures gomposer vs composer over a small fixture corpus and
 prints a markdown table. It is run manually; CI does not invoke composer.
 
 ```sh
-go build -o composer-go ./cmd/composer-go
+go build -o gomposer ./cmd/gomposer
 go run ./cmd/bench \
   --corpus cmd/bench/testdata/corpus \
-  --composer-go ./composer-go \
+  --gomposer ./gomposer \
   --composer "$(which composer)" \
   --runs 5
 ```
@@ -1503,7 +1503,7 @@ go run ./cmd/bench \
 The harness reports the median of N runs per `(fixture, scenario, tool)`.
 Scenarios:
 
-- **cold:** `vendor/`, `composer.lock`, and `composer-go.lock` removed before
+- **cold:** `vendor/`, `composer.lock`, and `gomposer.lock` removed before
   every run.
 - **warm:** lockfile and on-disk caches preserved; only `vendor/` is removed.
 - **lock-unchanged:** nothing is removed; the timed run starts fully populated.
@@ -1520,12 +1520,12 @@ git commit -m "docs(readme): point at cmd/bench"
 
 ## Stage 3 / Plan 1 acceptance check
 
-- [ ] `go test ./cmd/bench/...` passes offline. No test invokes a real composer or composer-go binary.
+- [ ] `go test ./cmd/bench/...` passes offline. No test invokes a real composer or gomposer binary.
 - [ ] `go build ./cmd/bench` produces a binary.
 - [ ] `cmd/bench/testdata/corpus/` contains four fixtures: `tiny-psrlog`, `monolog`, `laravel-skeleton`, `symfony-skeleton`. Each has a `composer.json` and nothing else committed.
-- [ ] `go run ./cmd/bench --corpus cmd/bench/testdata/corpus --composer-go ./composer-go --composer "$(which composer)" --runs 3` prints a markdown table with twelve data rows (4 fixtures * 3 scenarios) when run on a developer machine with both binaries available.
+- [ ] `go run ./cmd/bench --corpus cmd/bench/testdata/corpus --gomposer ./gomposer --composer "$(which composer)" --runs 3` prints a markdown table with twelve data rows (4 fixtures * 3 scenarios) when run on a developer machine with both binaries available.
 - [ ] Output rows are sorted by fixture (alphabetical) then scenario (`cold, warm, lock-unchanged`).
-- [ ] Speed-up column is `composer / composer-go` rounded to one decimal place.
+- [ ] Speed-up column is `composer / gomposer` rounded to one decimal place.
 - [ ] `--scenarios cold` selects only the cold rows.
 - [ ] `--runs 5` collects five samples per cell and reports their median.
 - [ ] Scenario filesystem prep is correct: cold removes vendor + both lockfiles every run; warm removes only vendor; lock-unchanged removes nothing.

@@ -2,7 +2,7 @@ package auth
 
 import "regexp"
 
-// We match the most common shapes Composer/composer-go produces. The goal
+// We match the most common shapes Composer/gomposer produces. The goal
 // is hygiene against accidental logging — code that handles a Credentials
 // value should still avoid passing it to a logger in the first place.
 var redactPatterns = []*regexp.Regexp{

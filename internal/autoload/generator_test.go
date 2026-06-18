@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // fixedProjectDir gives reproducible InitHash across machines.
-const fixedProjectDir = "/composer-go-test/fixture"
+const fixedProjectDir = "/gomposer-test/fixture"
 
 func fixtureEntries() []Entry {
 	return []Entry{

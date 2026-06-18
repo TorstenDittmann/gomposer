@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/platform"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 func mustVerRslv(t *testing.T, s string) constraint.Version {

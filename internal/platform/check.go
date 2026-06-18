@@ -3,7 +3,7 @@ package platform
 import (
 	"strings"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // ViolationKind classifies why a platform req was not satisfied.
@@ -15,7 +15,7 @@ const (
 	ViolationVersion ViolationKind = iota
 	// ViolationMissing: the req is for an extension that is not loaded.
 	ViolationMissing
-	// ViolationLibIgnored: the req is `lib-*`, which composer-go does not
+	// ViolationLibIgnored: the req is `lib-*`, which gomposer does not
 	// implement. Not a real failure; surfaced once per run as info.
 	ViolationLibIgnored
 	// ViolationUnparseable: the constraint string itself failed to parse.

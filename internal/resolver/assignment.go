@@ -1,7 +1,7 @@
 package resolver
 
 import (
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // Assignment is one step in the partial solution. Either a concrete decision

@@ -3,7 +3,7 @@ package resolver
 import (
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 func mustC(t *testing.T, s string) constraint.Constraint {

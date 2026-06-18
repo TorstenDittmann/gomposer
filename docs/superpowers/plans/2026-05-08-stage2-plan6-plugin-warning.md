@@ -2,16 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Detect Composer plugin packages (`composer-plugin`, `composer-installer`) in the resolved set and emit one clear, actionable warning per plugin to stderr. Plugins are still installed into `vendor/` — they just do not run. This matches the spec's "detected and ignored with a warning" policy. Add a manifest-level suppression escape hatch (`extra.composer-go.suppress-plugin-warnings`) and accept (but no-op) the `--allow-plugins` CLI flag so users can paste Composer commands without rejection.
+**Goal:** Detect Composer plugin packages (`composer-plugin`, `composer-installer`) in the resolved set and emit one clear, actionable warning per plugin to stderr. Plugins are still installed into `vendor/` — they just do not run. This matches the spec's "detected and ignored with a warning" policy. Add a manifest-level suppression escape hatch (`extra.gomposer.suppress-plugin-warnings`) and accept (but no-op) the `--allow-plugins` CLI flag so users can paste Composer commands without rejection.
 
-**Why this is necessary.** The spec is explicit: composer-go does not implement Composer's plugin system, but it cannot silently install plugin packages either — many real-world projects rely on plugins for behavior that will not happen here. The most common case is `composer/installers`, which rewrites install paths for WordPress / Drupal / TYPO3 / etc. layouts. With composer-go, those packages land in `vendor/<vendor>/<name>/` regardless. A loud warning at the right moment is the difference between "user sees a confusing failure later" and "user understands and decides".
+**Why this is necessary.** The spec is explicit: gomposer does not implement Composer's plugin system, but it cannot silently install plugin packages either — many real-world projects rely on plugins for behavior that will not happen here. The most common case is `composer/installers`, which rewrites install paths for WordPress / Drupal / TYPO3 / etc. layouts. With gomposer, those packages land in `vendor/<vendor>/<name>/` regardless. A loud warning at the right moment is the difference between "user sees a confusing failure later" and "user understands and decides".
 
 **Architecture:**
 
 - New package `internal/plugins` owns the detection rules and the rendered warning text. Pure logic, easy to test, no I/O.
 - The orchestrator pipeline calls `plugins.Inspect(lockFile, manifest)` after `resolveOrCache` returns and before `fetchAll`. The resulting warnings are written to `os.Stderr` (or an injected `io.Writer` for tests).
 - Plugin packages remain in `lockFile.Packages` / `lockFile.PackagesDev`. They flow through fetch, materialize, autoload exactly like any other library package.
-- The `--allow-plugins` flag is parsed by Cobra so commands like `composer-go install --allow-plugins='*'` do not error, but the flag is otherwise unused. Stage 5+ may revisit if real plugin execution ever ships.
+- The `--allow-plugins` flag is parsed by Cobra so commands like `gomposer install --allow-plugins='*'` do not error, but the flag is otherwise unused. Stage 5+ may revisit if real plugin execution ever ships.
 
 **Tech Stack:** Go 1.22+, standard library only. No new dependencies.
 
@@ -60,7 +60,7 @@ Append to `internal/lock/lock_test.go`:
 func TestPackageTypeRoundTrips(t *testing.T) {
 	in := &File{
 		SchemaVersion: SchemaVersion,
-		Generator:     Generator{Name: "composer-go", Version: "0.1.0"},
+		Generator:     Generator{Name: "gomposer", Version: "0.1.0"},
 		Packages: []Package{
 			{Name: "composer/installers", Version: "2.3.0", Type: "composer-installer"},
 			{Name: "psr/log", Version: "3.0.0", Type: "library"},
@@ -159,8 +159,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 func TestInspectDetectsComposerPlugin(t *testing.T) {
@@ -224,7 +224,7 @@ func TestInspectSuppressedByManifestExtra(t *testing.T) {
 		{Name: "phpstan/extension-installer", Version: "1.4.0", Type: "composer-plugin"},
 	}}
 	m := &manifest.Manifest{Extra: map[string]any{
-		"composer-go": map[string]any{
+		"gomposer": map[string]any{
 			"suppress-plugin-warnings": true,
 		},
 	}}
@@ -240,7 +240,7 @@ func TestInspectSuppressionIgnoresOtherTruthyValues(t *testing.T) {
 		{Name: "phpstan/extension-installer", Type: "composer-plugin"},
 	}}
 	m := &manifest.Manifest{Extra: map[string]any{
-		"composer-go": map[string]any{"suppress-plugin-warnings": "true"},
+		"gomposer": map[string]any{"suppress-plugin-warnings": "true"},
 	}}
 	if got := Inspect(f, m); len(got) != 1 {
 		t.Errorf("string \"true\" should NOT suppress; got %d warnings", len(got))
@@ -305,8 +305,8 @@ Create `internal/plugins/plugins.go`:
 // Package plugins detects Composer plugin packages in a resolved lockfile and
 // produces human-readable warnings.
 //
-// composer-go intentionally does not run plugins (see
-// docs/superpowers/specs/2026-05-07-composer-go-design.md, section
+// gomposer intentionally does not run plugins (see
+// docs/superpowers/specs/2026-05-07-gomposer-design.md, section
 // "Non-goals" and "Plugin detection"). Plugin packages still install into
 // vendor/ — they just never execute. This package draws the user's attention
 // to that asymmetry so install-time surprises do not become run-time
@@ -323,7 +323,7 @@ Create `internal/plugins/plugins.go`:
 //
 // Suppression: a project that knowingly accepts the limitation can set
 //
-//	"extra": { "composer-go": { "suppress-plugin-warnings": true } }
+//	"extra": { "gomposer": { "suppress-plugin-warnings": true } }
 //
 // in composer.json. Only the literal boolean true suppresses; any other
 // value (including the string "true") is treated as not-set.
@@ -333,8 +333,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 // Warning describes a single plugin package the user should know about.
@@ -354,7 +354,7 @@ var pluginTypes = map[string]bool{
 }
 
 // Inspect walks the resolved package set and returns one Warning per plugin
-// package. Returns nil if the user has set extra.composer-go.suppress-plugin-warnings=true,
+// package. Returns nil if the user has set extra.gomposer.suppress-plugin-warnings=true,
 // or if no plugins are present.
 //
 // Both prod and dev packages are inspected: a dev-only plugin (e.g.,
@@ -400,24 +400,24 @@ func messageFor(p lock.Package) string {
 	if p.Name == "composer/installers" {
 		return "composer/installers normally rewrites install paths " +
 			"(e.g., wp-content/plugins/<name>, modules/contrib/<name>); " +
-			"composer-go does not run installer plugins, so packages " +
+			"gomposer does not run installer plugins, so packages " +
 			"that depend on it will land in vendor/<vendor>/<name>/ regardless."
 	}
 	switch p.Type {
 	case "composer-installer":
-		return "this is a custom installer plugin; composer-go does not run it, " +
+		return "this is a custom installer plugin; gomposer does not run it, " +
 			"so any custom install paths it would normally configure will not " +
 			"take effect — packages will land in vendor/<vendor>/<name>/."
 	default: // "composer-plugin"
 		return "this plugin would normally hook into install/update events; " +
-			"composer-go does not run plugins, so any package-installer " +
+			"gomposer does not run plugins, so any package-installer " +
 			"behavior you depend on (custom install paths, patching, " +
 			"autoload tweaks, etc.) will not happen."
 	}
 }
 
 // isSuppressed returns true iff the manifest sets
-// extra.composer-go.suppress-plugin-warnings to the literal boolean true.
+// extra.gomposer.suppress-plugin-warnings to the literal boolean true.
 //
 // We deliberately do NOT accept the string "true" or other truthy values:
 // composer.json is JSON, the boolean type is unambiguous, and fuzzy matching
@@ -426,7 +426,7 @@ func isSuppressed(m *manifest.Manifest) bool {
 	if m == nil || m.Extra == nil {
 		return false
 	}
-	cg, ok := m.Extra["composer-go"].(map[string]any)
+	cg, ok := m.Extra["gomposer"].(map[string]any)
 	if !ok {
 		return false
 	}
@@ -439,7 +439,7 @@ func isSuppressed(m *manifest.Manifest) bool {
 // unconditionally.
 func Render(w io.Writer, warnings []Warning) {
 	for _, x := range warnings {
-		fmt.Fprintf(w, "warning: composer-go does not run plugins: %s@%s (type=%s) — %s\n",
+		fmt.Fprintf(w, "warning: gomposer does not run plugins: %s@%s (type=%s) — %s\n",
 			x.Name, x.Version, x.Type, x.Message)
 	}
 }
@@ -517,7 +517,7 @@ func TestInstallSuppressedByManifestExtra(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{
 "name":"vendor/pkg",
 "require":{"acme/plugin":"1.0.0"},
-"extra":{"composer-go":{"suppress-plugin-warnings":true}}
+"extra":{"gomposer":{"suppress-plugin-warnings":true}}
 }`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +572,7 @@ Add `"io"` to the imports.
 In `internal/orchestrator/pipeline.go`, add the import:
 
 ```go
-import "github.com/torstendittmann/composer-go/internal/plugins"
+import "github.com/torstendittmann/gomposer/internal/plugins"
 ```
 
 Inside `runFullPipeline`, immediately after the `resolveOrCache` call returns successfully and before `fetchAll`, insert:
@@ -614,7 +614,7 @@ git commit -m "feat(orchestrator): emit plugin warnings between resolve and fetc
 - Modify: `internal/cli/update.go`
 - Modify: `internal/cli/install_test.go` or a new test file
 
-`--allow-plugins` is a Composer 2 flag that gates plugin execution. composer-go does not run plugins at all, so the flag is meaningless here — but rejecting it would break copy-pasted Composer commands and CI scripts. We accept it (with any value, including the wildcard `*` and comma-separated lists) and ignore it. The help text explicitly notes this so users are not misled.
+`--allow-plugins` is a Composer 2 flag that gates plugin execution. gomposer does not run plugins at all, so the flag is meaningless here — but rejecting it would break copy-pasted Composer commands and CI scripts. We accept it (with any value, including the wildcard `*` and comma-separated lists) and ignore it. The help text explicitly notes this so users are not misled.
 
 - [ ] **Step 1: Append failing CLI test**
 
@@ -692,14 +692,14 @@ In `internal/cli/install.go`, inside `newInstallCmd()`, add a string-slice varia
 ```go
 	var (
 		projectDir   string
-		allowPlugins []string // accepted for Composer-CLI compatibility; no-op (composer-go does not run plugins)
+		allowPlugins []string // accepted for Composer-CLI compatibility; no-op (gomposer does not run plugins)
 	)
 	cmd := &cobra.Command{
 		// ... existing fields ...
 	}
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")
 	cmd.Flags().StringSliceVar(&allowPlugins, "allow-plugins", nil,
-		"accepted for Composer compatibility; no-op (composer-go does not run plugins, so this flag has no effect)")
+		"accepted for Composer compatibility; no-op (gomposer does not run plugins, so this flag has no effect)")
 	// Allow bare `--allow-plugins` with no value (Composer accepts that form).
 	cmd.Flags().Lookup("allow-plugins").NoOptDefVal = "*"
 	_ = allowPlugins // explicitly unused
@@ -718,9 +718,9 @@ Expected: PASS.
 - [ ] **Step 6: Manual smoke**
 
 ```bash
-go build -o composer-go ./cmd/composer-go
-./composer-go install --help | grep -A1 allow-plugins
-./composer-go install --allow-plugins='*' --project $(mktemp -d 2>/dev/null) || true
+go build -o gomposer ./cmd/gomposer
+./gomposer install --help | grep -A1 allow-plugins
+./gomposer install --allow-plugins='*' --project $(mktemp -d 2>/dev/null) || true
 ```
 
 Expected: help mentions "no-op"; the `--allow-plugins='*'` invocation does not produce an "unknown flag" error (it may error later for the missing manifest, which is fine).
@@ -740,7 +740,7 @@ git commit -m "feat(cli): accept --allow-plugins as a no-op for Composer compati
 - Create: `internal/orchestrator/plugin_live_test.go` (gated, optional)
 - No documentation file changes — the warning text itself is the user-facing doc.
 
-A small live test that installs a real plugin package (`phpstan/extension-installer`) and confirms a warning hits stderr. Gated on `COMPOSER_GO_LIVE_NETWORK=1` like the other live tests.
+A small live test that installs a real plugin package (`phpstan/extension-installer`) and confirms a warning hits stderr. Gated on `GOMPOSER_LIVE_NETWORK=1` like the other live tests.
 
 - [ ] **Step 1: Write the live test**
 
@@ -760,15 +760,15 @@ import (
 
 // TestLiveInstallEmitsPluginWarning installs phpstan/extension-installer (a
 // real composer-plugin) and asserts that a warning lands on the WarnWriter.
-// Gated on COMPOSER_GO_LIVE_NETWORK=1.
+// Gated on GOMPOSER_LIVE_NETWORK=1.
 func TestLiveInstallEmitsPluginWarning(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run against real Packagist")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run against real Packagist")
 	}
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{
-  "name": "composer-go-test/plugin-warn",
+  "name": "gomposer-test/plugin-warn",
   "require": { "phpstan/extension-installer": "^1.4" }
 }`), 0o644); err != nil {
 		t.Fatal(err)
@@ -790,7 +790,7 @@ func TestLiveInstallEmitsPluginWarning(t *testing.T) {
 
 - [ ] **Step 2: Run the live test**
 
-Run: `COMPOSER_GO_LIVE_NETWORK=1 go test ./internal/orchestrator/... -run TestLiveInstallEmitsPluginWarning -v`
+Run: `GOMPOSER_LIVE_NETWORK=1 go test ./internal/orchestrator/... -run TestLiveInstallEmitsPluginWarning -v`
 
 Expected: PASS. Warning text appears in the test log; `vendor/phpstan/extension-installer/` exists.
 
@@ -800,7 +800,7 @@ Run: `go test ./...`
 
 Expected: green offline.
 
-Run: `COMPOSER_GO_LIVE_NETWORK=1 go test ./...`
+Run: `GOMPOSER_LIVE_NETWORK=1 go test ./...`
 
 Expected: green with live tests.
 
@@ -818,11 +818,11 @@ git commit -m "test(orchestrator): live plugin-warning verification against Pack
 - [ ] `lock.Package.Type` round-trips through encode/decode and is populated by the resolver.
 - [ ] `internal/plugins.Inspect` returns one warning per `composer-plugin` and `composer-installer` package across both `Packages` and `PackagesDev`.
 - [ ] The `composer/installers` warning text specifically calls out custom install paths and the fact that packages will land in `vendor/<vendor>/<name>/` regardless.
-- [ ] Setting `extra.composer-go.suppress-plugin-warnings: true` in `composer.json` silences all plugin warnings; any other value (including the string `"true"`) does not.
+- [ ] Setting `extra.gomposer.suppress-plugin-warnings: true` in `composer.json` silences all plugin warnings; any other value (including the string `"true"`) does not.
 - [ ] The orchestrator emits warnings to `Options.WarnWriter` (or `os.Stderr` when nil) between resolve and fetch.
-- [ ] Plugin packages are still fetched, materialized into `vendor/`, and recorded in `composer-go.lock` — the warning is the only behavioral change.
+- [ ] Plugin packages are still fetched, materialized into `vendor/`, and recorded in `gomposer.lock` — the warning is the only behavioral change.
 - [ ] `--allow-plugins` (with any value, with no value via `NoOptDefVal`, or with a comma-separated list) is accepted by `install` and `update` and has no runtime effect; the help text says so.
 - [ ] `go test ./...` is green offline.
-- [ ] `COMPOSER_GO_LIVE_NETWORK=1 go test ./...` is green and includes `TestLiveInstallEmitsPluginWarning`.
+- [ ] `GOMPOSER_LIVE_NETWORK=1 go test ./...` is green and includes `TestLiveInstallEmitsPluginWarning`.
 
-If any item fails, fix forward in a follow-up commit before merging. Real plugin execution is explicitly out of scope for stage 2 and beyond — it would require a PHP runtime bridge that contradicts the "single static binary, no PHP for composer-go itself" goal in the design spec.
+If any item fails, fix forward in a follow-up commit before merging. Real plugin execution is explicitly out of scope for stage 2 and beyond — it would require a PHP runtime bridge that contradicts the "single static binary, no PHP for gomposer itself" goal in the design spec.

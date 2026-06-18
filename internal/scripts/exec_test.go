@@ -65,7 +65,7 @@ func TestRunShellSequenceFailFast(t *testing.T) {
 	}
 }
 
-func TestRunShellSetsComposerGoEnv(t *testing.T) {
+func TestRunShellSetsGomposerEnv(t *testing.T) {
 	skipIfNoSh(t)
 	dir := t.TempDir()
 	out := filepath.Join(dir, "env")
@@ -73,7 +73,7 @@ func TestRunShellSetsComposerGoEnv(t *testing.T) {
 	err := r.Run(context.Background(), EventPostInstall, Options{
 		ProjectDir: dir,
 		Scripts: map[string][]string{
-			"post-install-cmd": {`printf "%s" "$COMPOSER_GO" > ` + out},
+			"post-install-cmd": {`printf "%s" "$GOMPOSER" > ` + out},
 		},
 	})
 	if err != nil {
@@ -84,7 +84,7 @@ func TestRunShellSetsComposerGoEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(got) != "1" {
-		t.Errorf("COMPOSER_GO = %q, want 1", got)
+		t.Errorf("GOMPOSER = %q, want 1", got)
 	}
 }
 
@@ -189,8 +189,8 @@ func TestRunRefExecutesIndirect(t *testing.T) {
 }
 
 func TestRunPHPCallable(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_TEST_PHP") != "1" {
-		t.Skip("set COMPOSER_GO_TEST_PHP=1 with php on PATH to run")
+	if os.Getenv("GOMPOSER_TEST_PHP") != "1" {
+		t.Skip("set GOMPOSER_TEST_PHP=1 with php on PATH to run")
 	}
 	if _, err := exec.LookPath("php"); err != nil {
 		t.Skip("php not in PATH")

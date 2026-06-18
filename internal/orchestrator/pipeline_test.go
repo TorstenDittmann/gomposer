@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/platform"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 func mustVer(t *testing.T, s string) constraint.Version {
@@ -149,7 +149,7 @@ func TestVerbosePrintsTimingBlock(t *testing.T) {
 	got := string(out)
 
 	for _, want := range []string{
-		"composer-go: timing",
+		"gomposer: timing",
 		"read manifest",
 		"resolve",
 		"fetch",
@@ -194,7 +194,7 @@ func TestQuietSuppressesTimingBlock(t *testing.T) {
 	}
 	w.Close()
 	out, _ := io.ReadAll(r)
-	if strings.Contains(string(out), "composer-go: timing") {
+	if strings.Contains(string(out), "gomposer: timing") {
 		t.Errorf("quiet+verbose should suppress timing, got:\n%s", out)
 	}
 }

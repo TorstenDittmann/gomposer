@@ -10,7 +10,7 @@ import (
 )
 
 // runShell executes body via `sh -c <body>` on Unix. Working dir = project
-// root, env = parent env + COMPOSER_GO=1. Stdout and stderr stream to the
+// root, env = parent env + GOMPOSER=1. Stdout and stderr stream to the
 // parent process so users see live output. A non-zero exit is returned as a
 // wrapped error containing the event name and the redacted body.
 //
@@ -24,7 +24,7 @@ func runShell(ctx context.Context, body string, opts Options) error {
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", body)
 	cmd.Dir = opts.ProjectDir
-	cmd.Env = append(os.Environ(), "COMPOSER_GO=1")
+	cmd.Env = append(os.Environ(), "GOMPOSER=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if opts.Verbose {
@@ -52,12 +52,12 @@ func runPHPCallable(ctx context.Context, class, method string, opts Options) err
 	// Build a minimal PHP bootstrap. We avoid heredocs so the entire program
 	// fits cleanly into a single argv element.
 	bootstrap := "" +
-		"if (!file_exists('" + autoload + "')) { fwrite(STDERR, \"composer-go: vendor/autoload.php missing\\n\"); exit(1); }" +
+		"if (!file_exists('" + autoload + "')) { fwrite(STDERR, \"gomposer: vendor/autoload.php missing\\n\"); exit(1); }" +
 		"require '" + autoload + "';" +
 		"call_user_func(['" + escapePHPString(class) + "', '" + escapePHPString(method) + "']);"
 	cmd := exec.CommandContext(ctx, "php", "-r", bootstrap)
 	cmd.Dir = opts.ProjectDir
-	cmd.Env = append(os.Environ(), "COMPOSER_GO=1")
+	cmd.Env = append(os.Environ(), "GOMPOSER=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	body := class + "::" + method

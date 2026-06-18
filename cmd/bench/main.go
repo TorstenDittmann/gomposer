@@ -1,4 +1,4 @@
-// Command bench measures composer-go install vs composer install over a fixed
+// Command bench measures gomposer install vs composer install over a fixed
 // corpus and prints a markdown report. It is a manual tool: nothing in CI
 // invokes the real binaries.
 //
@@ -6,7 +6,7 @@
 //
 //	go run ./cmd/bench \
 //	  --corpus cmd/bench/testdata/corpus \
-//	  --composer-go ./composer-go \
+//	  --gomposer ./gomposer \
 //	  --composer /usr/local/bin/composer \
 //	  --runs 5 \
 //	  --scenarios cold,warm,lock-unchanged
@@ -26,7 +26,7 @@ import (
 // parsing has no dependency on the corpus loader.
 type flagPlan struct {
 	Corpus     string
-	ComposerGo string
+	Gomposer string
 	Composer   string
 	Runs       int
 	Scenarios  []Scenario
@@ -35,7 +35,7 @@ type flagPlan struct {
 func parseFlags(argv []string) (*flagPlan, error) {
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
 	corpus := fs.String("corpus", "", "directory of fixtures (each subdirectory must contain composer.json)")
-	composerGo := fs.String("composer-go", "composer-go", "path to the composer-go binary")
+	gomposer := fs.String("gomposer", "gomposer", "path to the gomposer binary")
 	composer := fs.String("composer", "composer", "path to the composer binary")
 	runs := fs.Int("runs", 3, "number of timed runs per (fixture, scenario, tool); median is reported")
 	scenariosCSV := fs.String("scenarios", "cold,warm,lock-unchanged",
@@ -69,7 +69,7 @@ func parseFlags(argv []string) (*flagPlan, error) {
 
 	return &flagPlan{
 		Corpus:     *corpus,
-		ComposerGo: *composerGo,
+		Gomposer: *gomposer,
 		Composer:   *composer,
 		Runs:       *runs,
 		Scenarios:  scs,
@@ -100,7 +100,7 @@ func mainImpl(argv []string) error {
 		Fixtures:       fixtures,
 		Scenarios:      fp.Scenarios,
 		Runs:           fp.Runs,
-		ComposerGoPath: fp.ComposerGo,
+		GomposerPath: fp.Gomposer,
 		ComposerPath:   fp.Composer,
 	}
 

@@ -170,7 +170,7 @@ func (t *Timings) Render(w io.Writer) {
 	c := t.counters
 	t.mu.Unlock()
 
-	fmt.Fprintln(w, "composer-go: timing")
+	fmt.Fprintln(w, "gomposer: timing")
 	for _, p := range phases {
 		annot := annotate(p.Name, c)
 		if annot == "" {

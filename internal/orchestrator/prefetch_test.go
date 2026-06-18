@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // recordingFetcher records every Fetch call. Optionally sleeps `delay` so
@@ -169,7 +169,7 @@ func writeFixtureManifest(tb testing.TB, dir string) {
 	}
 }
 
-// writeFixtureLock writes a minimal composer-go.lock with the given package
+// writeFixtureLock writes a minimal gomposer.lock with the given package
 // names as production packages. Each package gets a stub Dist URL and sha256.
 func writeFixtureLock(tb testing.TB, dir string, names []string) {
 	tb.Helper()
@@ -189,7 +189,7 @@ func writeFixtureLock(tb testing.TB, dir string, names []string) {
 	if err != nil {
 		tb.Fatalf("writeFixtureLock: encode: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "composer-go.lock"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), data, 0o644); err != nil {
 		tb.Fatalf("writeFixtureLock: write: %v", err)
 	}
 }

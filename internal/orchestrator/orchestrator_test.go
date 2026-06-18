@@ -11,11 +11,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	platformpkg "github.com/torstendittmann/composer-go/internal/platform"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/resolver"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	platformpkg "github.com/torstendittmann/gomposer/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver"
 )
 
 // resetPlatformProbeForTest installs a fake PHP version (with a generic
@@ -241,13 +241,13 @@ func TestWriteLockProducesValidJSON(t *testing.T) {
 	dir := t.TempDir()
 	f := &lock.File{
 		SchemaVersion: lock.SchemaVersion,
-		Generator:     lock.Generator{Name: "composer-go", Version: "0.1.0"},
+		Generator:     lock.Generator{Name: "gomposer", Version: "0.1.0"},
 		Packages:      []lock.Package{{Name: "psr/log", Version: "3.0.0"}},
 	}
 	if err := writeLock(dir, f); err != nil {
 		t.Fatalf("writeLock: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	data, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
 	if err != nil {
 		t.Fatalf("read lock: %v", err)
 	}
@@ -286,8 +286,8 @@ func TestInstallFullPipelineWithFakes(t *testing.T) {
 	if err := Install(context.Background(), opts); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "composer-go.lock")); err != nil {
-		t.Errorf("composer-go.lock not written: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
+		t.Errorf("gomposer.lock not written: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "vendor", "autoload.php")); err != nil {
 		t.Errorf("vendor/autoload.php not written: %v", err)
@@ -385,7 +385,7 @@ func TestInstallEmitsPlatformWarningsAndPersistsOnLock(t *testing.T) {
 		t.Fatalf("Install: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	data, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
 	if err != nil {
 		t.Fatalf("read lock: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestInstallIgnorePlatformReqSuppresses(t *testing.T) {
 	if err := Install(context.Background(), opts); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "composer-go.lock"))
+	data, _ := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
 	f, _ := lock.Decode(data)
 	for _, w := range f.Warnings {
 		if strings.Contains(w, "acme/leaf") {
@@ -500,7 +500,7 @@ func TestInstallSuppressedByManifestExtra(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{
 "name":"vendor/pkg",
 "require":{"acme/plugin":"1.0.0"},
-"extra":{"composer-go":{"suppress-plugin-warnings":true}}
+"extra":{"gomposer":{"suppress-plugin-warnings":true}}
 }`), 0o644); err != nil {
 		t.Fatal(err)
 	}

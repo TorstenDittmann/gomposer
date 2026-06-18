@@ -5,7 +5,7 @@
 //
 //   - Shell command: any string that does not match the other forms. Executed
 //     via `sh -c <cmd>` on Unix. Working dir = project root, env inherited
-//     plus COMPOSER_GO=1.
+//     plus GOMPOSER=1.
 //   - PHP-callable: a string matching `Vendor\Class::method` or
 //     `\Vendor\Class::method`. Executed via `php -r` after requiring
 //     vendor/autoload.php. The method receives no arguments in stage 2;

@@ -8,7 +8,7 @@ import (
 )
 
 // Manifest is the parsed view of a composer.json file. Fields not yet
-// supported by composer-go are omitted; unknown fields in the input are
+// supported by gomposer are omitted; unknown fields in the input are
 // ignored silently for forward-compatibility with future Composer features.
 type Manifest struct {
 	Name             string            `json:"name"`
@@ -33,8 +33,8 @@ type Manifest struct {
 	Scripts map[string][]string `json:"-"`
 
 	// Extra holds arbitrary project-specific data from the "extra" key in
-	// composer.json. composer-go reads it for its own namespaced config
-	// (e.g., extra.composer-go.suppress-plugin-warnings).
+	// composer.json. gomposer reads it for its own namespaced config
+	// (e.g., extra.gomposer.suppress-plugin-warnings).
 	Extra map[string]any `json:"extra,omitempty"`
 }
 
@@ -114,7 +114,7 @@ func parseRepositories(data []byte) ([]Repository, error) {
 		case '[':
 			return parseRepositoriesArray(data)
 		case '{':
-			return nil, fmt.Errorf("manifest: legacy map form of `repositories` is not supported; use the array form (composer-go CG203)")
+			return nil, fmt.Errorf("manifest: legacy map form of `repositories` is not supported; use the array form (gomposer CG203)")
 		case 'f': // false / disable-defaults convention
 			return nil, nil
 		}

@@ -25,7 +25,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/lock"
 )
 
 // Prefetcher is the runtime handle returned by startPrefetch. Callers Wait

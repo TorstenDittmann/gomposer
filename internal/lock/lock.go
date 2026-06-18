@@ -1,7 +1,7 @@
-// Package lock handles composer-go.lock read and write.
+// Package lock handles gomposer.lock read and write.
 //
 // The on-disk format is documented in
-// docs/superpowers/specs/2026-05-07-composer-go-design.md (section "Lockfile
+// docs/superpowers/specs/2026-05-07-gomposer-design.md (section "Lockfile
 // format"). Field renames here MUST be reflected in the spec.
 package lock
 
@@ -32,7 +32,7 @@ type File struct {
 	//
 	// We store them in the lockfile (NOT only in the resolution-result
 	// cache) because the JSON lockfile is the canonical source of truth a
-	// user can inspect, and a future `composer-go check` should be able to
+	// user can inspect, and a future `gomposer check` should be able to
 	// re-print them without re-resolving.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -99,7 +99,7 @@ func Decode(data []byte) (*File, error) {
 		return nil, fmt.Errorf("lock: decode: %w", err)
 	}
 	if f.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("lock: unsupported schemaVersion %d (this build supports %d) — delete composer-go.lock to rebuild", f.SchemaVersion, SchemaVersion)
+		return nil, fmt.Errorf("lock: unsupported schemaVersion %d (this build supports %d) — delete gomposer.lock to rebuild", f.SchemaVersion, SchemaVersion)
 	}
 	return &f, nil
 }

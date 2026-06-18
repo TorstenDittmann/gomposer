@@ -11,10 +11,10 @@ import (
 // TestLiveInstallPsrLog is the stage-1 acceptance test: install a real
 // Packagist project end-to-end, then re-install on a warm cache in <100ms.
 //
-// Gated on COMPOSER_GO_LIVE_NETWORK=1.
+// Gated on GOMPOSER_LIVE_NETWORK=1.
 func TestLiveInstallPsrLog(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run this test against real Packagist")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run this test against real Packagist")
 	}
 
 	// Isolate caches: we want a clean cold path on the first run.
@@ -24,7 +24,7 @@ func TestLiveInstallPsrLog(t *testing.T) {
 	projectDir := t.TempDir()
 	manifestPath := filepath.Join(projectDir, "composer.json")
 	manifestContent := []byte(`{
-  "name": "composer-go-test/live",
+  "name": "gomposer-test/live",
   "type": "library",
   "require": { "psr/log": "^3.0" }
 }`)
@@ -45,8 +45,8 @@ func TestLiveInstallPsrLog(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, "vendor", "autoload.php")); err != nil {
 		t.Errorf("vendor/autoload.php not generated: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, "composer-go.lock")); err != nil {
-		t.Errorf("composer-go.lock not written: %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, "gomposer.lock")); err != nil {
+		t.Errorf("gomposer.lock not written: %v", err)
 	}
 
 	// At least one PHP source file should be present in the materialized package.
@@ -80,8 +80,8 @@ func TestLiveInstallPsrLog(t *testing.T) {
 // TestLiveUpdateRewritesLock exercises the update path against real Packagist.
 // Gated identically.
 func TestLiveUpdateRewritesLock(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1")
 	}
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
@@ -93,7 +93,7 @@ func TestLiveUpdateRewritesLock(t *testing.T) {
 	if err := Update(context.Background(), Options{ProjectDir: dir}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "composer-go.lock")); err != nil {
-		t.Errorf("composer-go.lock not written by update: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
+		t.Errorf("gomposer.lock not written by update: %v", err)
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 type stubSource struct {

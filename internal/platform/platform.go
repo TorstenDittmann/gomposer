@@ -3,7 +3,7 @@
 //
 // The snapshot is captured by Probe(), which shells out to `php -r` once
 // per process and parses the resulting JSON. Subsequent calls return the
-// cached result — PHP versions don't change while a single composer-go
+// cached result — PHP versions don't change while a single gomposer
 // run is in progress.
 //
 // Cross-process: NOT cached on disk. PHP versions can change with OS
@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/torstendittmann/composer-go/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/constraint"
 )
 
 // Platform is a structured snapshot of the runtime PHP.

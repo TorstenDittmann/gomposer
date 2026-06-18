@@ -102,7 +102,7 @@ Create `internal/cli/progress.go`:
 //     warnings via charmbracelet/log; the noop progress purposely adds
 //     nothing on top.
 //   - ttyProgress: ANSI in-place redraws. A throttled goroutine rewrites a
-//     single status line ("composer-go: fetching 12/47 [====   ] symfony/console v6.4.5")
+//     single status line ("gomposer: fetching 12/47 [====   ] symfony/console v6.4.5")
 //     at most every redrawInterval. After each phase completes, it prints
 //     a final summary line. After Done(), it prints the wall-time summary.
 //
@@ -376,12 +376,12 @@ func (p *ttyProgress) endPhase(verb string) {
 	total := p.total
 	p.phase = ""
 	p.mu.Unlock()
-	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: %s %d packages\n", verb, total)
+	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d packages\n", verb, total)
 }
 
 func (p *ttyProgress) Done(packageCount int) {
 	elapsed := time.Since(p.startTime).Round(10 * time.Millisecond)
-	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: installed %d package%s in %s\n",
+	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: installed %d package%s in %s\n",
 		packageCount, plural(packageCount), elapsed)
 }
 
@@ -402,7 +402,7 @@ func (p *ttyProgress) maybeDraw(force bool) {
 		cur = p.total
 	}
 	bar := renderBar(cur, p.total)
-	fmt.Fprintf(p.w, "\r\x1b[Kcomposer-go: %s %d/%d  %s  %s",
+	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d/%d  %s  %s",
 		p.phase, cur, p.total, bar, p.label)
 	p.lastDraw = now
 }
@@ -650,17 +650,17 @@ Same change in `internal/cli/update.go`.
 Run:
 
 ```bash
-go build ./cmd/composer-go
+go build ./cmd/gomposer
 cd /tmp/cg-smoke      # or any project with composer.json
-$OLDPWD/composer-go install
+$OLDPWD/gomposer install
 ```
 
-Expected on a TTY: a single redrawing line `composer-go: fetching N/M  [===   ]  vendor/pkg vX.Y.Z`, two phase summary lines (`fetched N packages`, `extracted N packages`), and a final `composer-go: installed N packages in NNNms` line.
+Expected on a TTY: a single redrawing line `gomposer: fetching N/M  [===   ]  vendor/pkg vX.Y.Z`, two phase summary lines (`fetched N packages`, `extracted N packages`), and a final `gomposer: installed N packages in NNNms` line.
 
 Run with stderr redirected:
 
 ```bash
-$OLDPWD/composer-go install 2>/tmp/cg-stderr.log
+$OLDPWD/gomposer install 2>/tmp/cg-stderr.log
 cat /tmp/cg-stderr.log
 ```
 
@@ -669,7 +669,7 @@ Expected: empty (or just any platform warnings). No ANSI escapes, no progress ba
 Run with `--quiet`:
 
 ```bash
-$OLDPWD/composer-go install --quiet
+$OLDPWD/gomposer install --quiet
 ```
 
 Expected: no progress output even on a TTY.
@@ -776,7 +776,7 @@ git commit -m "test(orchestrator): assert Progress events from full pipeline"
 ## Task 6: Documentation hook
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-05-07-composer-go-design.md`
+- Modify: `docs/superpowers/specs/2026-05-07-gomposer-design.md`
 
 The spec already lists "Optional terminal progress UI" under Stage 3. Update that line to point at this plan and clarify the auto-detect behavior.
 
@@ -799,7 +799,7 @@ with:
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-05-07-composer-go-design.md
+git add docs/superpowers/specs/2026-05-07-gomposer-design.md
 git commit -m "docs(spec): refine stage-3 progress UI line, link plan 6"
 ```
 
@@ -810,9 +810,9 @@ git commit -m "docs(spec): refine stage-3 progress UI line, link plan 6"
 After all tasks:
 
 - `go test ./...` is green.
-- `composer-go install` on a real project shows a single redrawing status line on a TTY, with phase summaries and a final wall-time line.
-- `composer-go install 2>/tmp/log` produces no ANSI escapes in `/tmp/log` (noop path).
-- `composer-go install --quiet` shows no progress output even on a TTY.
+- `gomposer install` on a real project shows a single redrawing status line on a TTY, with phase summaries and a final wall-time line.
+- `gomposer install 2>/tmp/log` produces no ANSI escapes in `/tmp/log` (noop path).
+- `gomposer install --quiet` shows no progress output even on a TTY.
 - The recorded test in Task 5 confirms `BeginFetch` / `IncFetch` / `EndFetch` / `BeginExtract` / `IncExtract` / `EndExtract` / `Done` are all invoked exactly once per phase boundary and once per package.
 - Manual stress: an install with 50+ packages should not flicker — the throttle keeps redraws at ≤20/s.
 

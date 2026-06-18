@@ -207,9 +207,9 @@ func defaultPaths() (composerPath, userPath string, err error) {
 	}
 	composerPath = filepath.Join(home, ".composer", "auth.json")
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		userPath = filepath.Join(x, "composer-go", "auth.json")
+		userPath = filepath.Join(x, "gomposer", "auth.json")
 	} else {
-		userPath = filepath.Join(home, ".config", "composer-go", "auth.json")
+		userPath = filepath.Join(home, ".config", "gomposer", "auth.json")
 	}
 	return composerPath, userPath, nil
 }
@@ -218,7 +218,7 @@ func defaultPaths() (composerPath, userPath string, err error) {
 //
 // Precedence on host collision:
 //
-//	$XDG_CONFIG_HOME/composer-go/auth.json   (or ~/.config/composer-go/auth.json)
+//	$XDG_CONFIG_HOME/gomposer/auth.json   (or ~/.config/gomposer/auth.json)
 //	      wins over
 //	~/.composer/auth.json
 //

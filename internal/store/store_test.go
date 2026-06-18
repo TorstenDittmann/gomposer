@@ -80,7 +80,7 @@ func TestOpenReaderMissReturnsError(t *testing.T) {
 
 func TestProjectStoreDir(t *testing.T) {
 	got := ProjectStoreDir("/work/proj")
-	want := filepath.Join("/work/proj", ".composer-go", "store")
+	want := filepath.Join("/work/proj", ".gomposer", "store")
 	if got != want {
 		t.Errorf("ProjectStoreDir = %q, want %q", got, want)
 	}

@@ -1,8 +1,8 @@
 // Package plugins detects Composer plugin packages in a resolved lockfile and
 // produces human-readable warnings.
 //
-// composer-go intentionally does not run plugins (see
-// docs/superpowers/specs/2026-05-07-composer-go-design.md, section
+// gomposer intentionally does not run plugins (see
+// docs/superpowers/specs/2026-05-07-gomposer-design.md, section
 // "Non-goals" and "Plugin detection"). Plugin packages still install into
 // vendor/ — they just never execute. This package draws the user's attention
 // to that asymmetry so install-time surprises do not become run-time
@@ -19,7 +19,7 @@
 //
 // Suppression: a project that knowingly accepts the limitation can set
 //
-//	"extra": { "composer-go": { "suppress-plugin-warnings": true } }
+//	"extra": { "gomposer": { "suppress-plugin-warnings": true } }
 //
 // in composer.json. Only the literal boolean true suppresses; any other
 // value (including the string "true") is treated as not-set.
@@ -29,8 +29,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 // Warning describes a single plugin package the user should know about.
@@ -50,7 +50,7 @@ var pluginTypes = map[string]bool{
 }
 
 // Inspect walks the resolved package set and returns one Warning per plugin
-// package. Returns nil if the user has set extra.composer-go.suppress-plugin-warnings=true,
+// package. Returns nil if the user has set extra.gomposer.suppress-plugin-warnings=true,
 // or if no plugins are present.
 //
 // Both prod and dev packages are inspected: a dev-only plugin (e.g.,
@@ -96,24 +96,24 @@ func messageFor(p lock.Package) string {
 	if p.Name == "composer/installers" {
 		return "composer/installers normally rewrites custom install paths " +
 			"(e.g., wp-content/plugins/<name>, modules/contrib/<name>); " +
-			"composer-go does not run installer plugins, so packages " +
+			"gomposer does not run installer plugins, so packages " +
 			"that depend on it will land in vendor/<vendor>/<name>/ regardless."
 	}
 	switch p.Type {
 	case "composer-installer":
-		return "this is a custom installer plugin; composer-go does not run it, " +
+		return "this is a custom installer plugin; gomposer does not run it, " +
 			"so any custom install paths it would normally configure will not " +
 			"take effect — packages will land in vendor/<vendor>/<name>/."
 	default: // "composer-plugin"
 		return "this plugin would normally hook into install/update events; " +
-			"composer-go does not run plugins, so any package-installer " +
+			"gomposer does not run plugins, so any package-installer " +
 			"behavior you depend on (custom install paths, patching, " +
 			"autoload tweaks, etc.) will not happen."
 	}
 }
 
 // isSuppressed returns true iff the manifest sets
-// extra.composer-go.suppress-plugin-warnings to the literal boolean true.
+// extra.gomposer.suppress-plugin-warnings to the literal boolean true.
 //
 // We deliberately do NOT accept the string "true" or other truthy values:
 // composer.json is JSON, the boolean type is unambiguous, and fuzzy matching
@@ -122,7 +122,7 @@ func isSuppressed(m *manifest.Manifest) bool {
 	if m == nil || m.Extra == nil {
 		return false
 	}
-	cg, ok := m.Extra["composer-go"].(map[string]any)
+	cg, ok := m.Extra["gomposer"].(map[string]any)
 	if !ok {
 		return false
 	}
@@ -135,7 +135,7 @@ func isSuppressed(m *manifest.Manifest) bool {
 // unconditionally.
 func Render(w io.Writer, warnings []Warning) {
 	for _, x := range warnings {
-		fmt.Fprintf(w, "warning: composer-go does not run plugins: %s@%s (type=%s) — %s\n",
+		fmt.Fprintf(w, "warning: gomposer does not run plugins: %s@%s (type=%s) — %s\n",
 			x.Name, x.Version, x.Type, x.Message)
 	}
 }

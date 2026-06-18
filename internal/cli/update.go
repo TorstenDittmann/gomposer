@@ -8,18 +8,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/torstendittmann/composer-go/internal/orchestrator"
+	"github.com/torstendittmann/gomposer/internal/orchestrator"
 )
 
 func newUpdateCmd() *cobra.Command {
 	var (
 		projectDir   string
-		allowPlugins []string // accepted for Composer-CLI compatibility; no-op (composer-go does not run plugins)
+		allowPlugins []string // accepted for Composer-CLI compatibility; no-op (gomposer does not run plugins)
 		noPrefetch   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Re-resolve all dependencies and rewrite composer-go.lock + vendor/",
+		Short: "Re-resolve all dependencies and rewrite gomposer.lock + vendor/",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectDir == "" {
 				wd, err := os.Getwd()
@@ -50,7 +50,7 @@ func newUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")
 	cmd.Flags().BoolVar(&noPrefetch, "no-prefetch", false, "disable lock-driven speculative prefetch (benchmark hook)")
 	cmd.Flags().StringSliceVar(&allowPlugins, "allow-plugins", nil,
-		"accepted for Composer compatibility; no-op (composer-go does not run plugins, so this flag has no effect)")
+		"accepted for Composer compatibility; no-op (gomposer does not run plugins, so this flag has no effect)")
 	// Allow bare `--allow-plugins` with no value (Composer accepts that form).
 	cmd.Flags().Lookup("allow-plugins").NoOptDefVal = "*"
 	return cmd

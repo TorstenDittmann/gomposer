@@ -8,14 +8,14 @@ import (
 
 func TestRenderMarkdownIncludesHeader(t *testing.T) {
 	out := RenderMarkdown(nil)
-	if !strings.Contains(out, "| Fixture | Scenario | composer-go | composer | speed-up |") {
+	if !strings.Contains(out, "| Fixture | Scenario | gomposer | composer | speed-up |") {
 		t.Errorf("missing header in output:\n%s", out)
 	}
 }
 
 func TestRenderMarkdownPairsToolsAndComputesSpeedup(t *testing.T) {
 	results := []Result{
-		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolComposerGo, Median: 200 * time.Millisecond},
+		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolGomposer, Median: 200 * time.Millisecond},
 		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolComposer, Median: 1000 * time.Millisecond},
 	}
 	out := RenderMarkdown(results)
@@ -32,11 +32,11 @@ func TestRenderMarkdownPairsToolsAndComputesSpeedup(t *testing.T) {
 
 func TestRenderMarkdownSortsFixtureThenScenario(t *testing.T) {
 	results := []Result{
-		{Fixture: "zeta", Scenario: ScenarioWarm, Tool: ToolComposerGo, Median: 10 * time.Millisecond},
+		{Fixture: "zeta", Scenario: ScenarioWarm, Tool: ToolGomposer, Median: 10 * time.Millisecond},
 		{Fixture: "zeta", Scenario: ScenarioWarm, Tool: ToolComposer, Median: 100 * time.Millisecond},
-		{Fixture: "alpha", Scenario: ScenarioLockUnchanged, Tool: ToolComposerGo, Median: 5 * time.Millisecond},
+		{Fixture: "alpha", Scenario: ScenarioLockUnchanged, Tool: ToolGomposer, Median: 5 * time.Millisecond},
 		{Fixture: "alpha", Scenario: ScenarioLockUnchanged, Tool: ToolComposer, Median: 50 * time.Millisecond},
-		{Fixture: "alpha", Scenario: ScenarioCold, Tool: ToolComposerGo, Median: 100 * time.Millisecond},
+		{Fixture: "alpha", Scenario: ScenarioCold, Tool: ToolGomposer, Median: 100 * time.Millisecond},
 		{Fixture: "alpha", Scenario: ScenarioCold, Tool: ToolComposer, Median: 200 * time.Millisecond},
 	}
 	out := RenderMarkdown(results)
@@ -54,9 +54,9 @@ func TestRenderMarkdownSortsFixtureThenScenario(t *testing.T) {
 }
 
 func TestRenderMarkdownHandlesMissingTool(t *testing.T) {
-	// composer-go ran but composer was skipped.
+	// gomposer ran but composer was skipped.
 	results := []Result{
-		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolComposerGo, Median: 200 * time.Millisecond},
+		{Fixture: "tiny", Scenario: ScenarioCold, Tool: ToolGomposer, Median: 200 * time.Millisecond},
 	}
 	out := RenderMarkdown(results)
 	if !strings.Contains(out, "n/a") {

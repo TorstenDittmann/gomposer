@@ -246,7 +246,7 @@ func (t *Timings) Render(w io.Writer) {
 	c := t.counters
 	t.mu.Unlock()
 
-	fmt.Fprintln(w, "composer-go: timing")
+	fmt.Fprintln(w, "gomposer: timing")
 	for _, p := range phases {
 		annot := annotate(p.Name, c)
 		if annot == "" {
@@ -339,7 +339,7 @@ func TestTimingsRender(t *testing.T) {
 	got := buf.String()
 
 	want := []string{
-		"composer-go: timing",
+		"gomposer: timing",
 		"read manifest        1 ms",
 		"resolve             50 ms (12 packages)",
 		"fetch              200 ms (8/12 cold, 512 KB)",
@@ -863,7 +863,7 @@ func TestVerbosePrintsTimingBlock(t *testing.T) {
 	got := string(out)
 
 	for _, want := range []string{
-		"composer-go: timing",
+		"gomposer: timing",
 		"read manifest",
 		"resolve",
 		"fetch",
@@ -933,7 +933,7 @@ func TestQuietSuppressesTimingBlock(t *testing.T) {
 	}
 	w.Close()
 	out, _ := io.ReadAll(r)
-	if strings.Contains(string(out), "composer-go: timing") {
+	if strings.Contains(string(out), "gomposer: timing") {
 		t.Errorf("quiet+verbose should suppress timing, got:\n%s", out)
 	}
 }
@@ -962,22 +962,22 @@ git commit -m "test(orchestrator): --quiet suppresses verbose timing block"
 
 Run:
 ```bash
-go build ./cmd/composer-go
+go build ./cmd/gomposer
 ```
 
 - [ ] **Step 2: Run a real install with `--verbose`**
 
-In a project that already has a working `composer-go install` flow (e.g. a checkout with a Packagist `monolog/monolog` dependency):
+In a project that already has a working `gomposer install` flow (e.g. a checkout with a Packagist `monolog/monolog` dependency):
 
 ```bash
-./composer-go install --verbose 2> timing.log
+./gomposer install --verbose 2> timing.log
 cat timing.log
 ```
 
 Expected: stderr contains a block like:
 
 ```
-composer-go: timing
+gomposer: timing
   read manifest        2 ms
   resolve             83 ms (4 packages)
   fetch              412 ms (3/4 cold, 218 KB)
@@ -995,11 +995,11 @@ Run again. The fetch line should now read `(0/4 cold, 0 KB)` with a much smaller
 - [ ] **Step 4: Run without `--verbose`**
 
 ```bash
-./composer-go install 2> notiming.log
+./gomposer install 2> notiming.log
 test ! -s notiming.log || grep -q timing notiming.log && echo FAIL || echo OK
 ```
 
-Expected: `OK`. No `composer-go: timing` block on stderr.
+Expected: `OK`. No `gomposer: timing` block on stderr.
 
 ---
 
@@ -1008,10 +1008,10 @@ Expected: `OK`. No `composer-go: timing` block on stderr.
 After all tasks:
 
 - `go test ./...` is green.
-- `go build ./cmd/composer-go` produces a binary.
-- `composer-go install --verbose` prints a 9-line timing block to stderr ending with `-------- total  N ms`.
-- `composer-go install` (no `--verbose`) prints no timing block.
-- `composer-go install --verbose --quiet` prints no timing block.
+- `go build ./cmd/gomposer` produces a binary.
+- `gomposer install --verbose` prints a 9-line timing block to stderr ending with `-------- total  N ms`.
+- `gomposer install` (no `--verbose`) prints no timing block.
+- `gomposer install --verbose --quiet` prints no timing block.
 - The fetch counters are accurate: warm-cache run reports `0/N cold, 0 KB`; cold-cache run reports `N/N cold, K KB` matching the actual download size within rounding.
 - The `Timings` type is safe for concurrent use under `-race`: `go test -race ./internal/orchestrator/...` is green.
 

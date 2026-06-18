@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/auth"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/auth"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 const sampleResponse = `{
@@ -141,8 +141,8 @@ func TestLookupNotFound(t *testing.T) {
 }
 
 func TestLiveLookupMonolog(t *testing.T) {
-	if os.Getenv("COMPOSER_GO_LIVE_NETWORK") != "1" {
-		t.Skip("set COMPOSER_GO_LIVE_NETWORK=1 to run")
+	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
+		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run")
 	}
 	c, err := New(Config{CacheDir: t.TempDir()})
 	if err != nil {

@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/torstendittmann/composer-go/internal/auth"
-	"github.com/torstendittmann/composer-go/internal/cache/httpcache"
-	"github.com/torstendittmann/composer-go/internal/cache/parsedcache"
-	"github.com/torstendittmann/composer-go/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/auth"
+	"github.com/torstendittmann/gomposer/internal/cache/httpcache"
+	"github.com/torstendittmann/gomposer/internal/cache/parsedcache"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 const defaultBaseURL = "https://repo.packagist.org"

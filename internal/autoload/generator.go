@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/torstendittmann/composer-go/internal/autoload/embedded"
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/autoload/embedded"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 // Options is the input to Generate. ProjectDir must be absolute (the

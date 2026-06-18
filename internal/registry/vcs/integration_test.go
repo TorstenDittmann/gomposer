@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/registry/multisource"
-	"github.com/torstendittmann/composer-go/internal/resolver"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/registry/multisource"
+	"github.com/torstendittmann/gomposer/internal/resolver"
 )
 
 func TestResolverFindsTaggedVersion(t *testing.T) {

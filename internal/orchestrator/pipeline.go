@@ -13,21 +13,21 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/torstendittmann/composer-go/internal/auth"
-	autoloadpkg "github.com/torstendittmann/composer-go/internal/autoload"
-	"github.com/torstendittmann/composer-go/internal/cache"
-	realfetcher "github.com/torstendittmann/composer-go/internal/fetcher"
-	"github.com/torstendittmann/composer-go/internal/lock"
-	"github.com/torstendittmann/composer-go/internal/manifest"
-	"github.com/torstendittmann/composer-go/internal/platform"
-	"github.com/torstendittmann/composer-go/internal/plugins"
-	"github.com/torstendittmann/composer-go/internal/registry"
-	"github.com/torstendittmann/composer-go/internal/registry/multisource"
-	"github.com/torstendittmann/composer-go/internal/registry/packagist"
-	"github.com/torstendittmann/composer-go/internal/registry/vcs"
-	"github.com/torstendittmann/composer-go/internal/resolver"
-	"github.com/torstendittmann/composer-go/internal/scripts"
-	"github.com/torstendittmann/composer-go/internal/store"
+	"github.com/torstendittmann/gomposer/internal/auth"
+	autoloadpkg "github.com/torstendittmann/gomposer/internal/autoload"
+	"github.com/torstendittmann/gomposer/internal/cache"
+	realfetcher "github.com/torstendittmann/gomposer/internal/fetcher"
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/plugins"
+	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/registry/multisource"
+	"github.com/torstendittmann/gomposer/internal/registry/packagist"
+	"github.com/torstendittmann/gomposer/internal/registry/vcs"
+	"github.com/torstendittmann/gomposer/internal/resolver"
+	"github.com/torstendittmann/gomposer/internal/scripts"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 // progressOrNoop returns opts.Progress if set, otherwise a silent stub. Every
@@ -85,7 +85,7 @@ func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: read manifest bytes: %w", err)
 	}
-	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "composer-go.lock"))
+	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "gomposer.lock"))
 
 	ignore := buildIgnoreSet(opts.IgnorePlatformReqs)
 
@@ -176,7 +176,7 @@ func buildLockFile(ps *pipelineState, res *resolver.Result) *lock.File {
 	prod, dev := resolver.ToLockPackages(res)
 	return &lock.File{
 		SchemaVersion:       lock.SchemaVersion,
-		Generator:           lock.Generator{Name: "composer-go", Version: "0.1.0"},
+		Generator:           lock.Generator{Name: "gomposer", Version: "0.1.0"},
 		ManifestContentHash: "sha256:" + hex.EncodeToString(manifestHash[:]),
 		PlatformFingerprint: ps.platformStr,
 		Stability: lock.Stability{
@@ -294,13 +294,13 @@ func generateAutoloader(ctx context.Context, projectDir string, pkgs []lock.Pack
 	return nil
 }
 
-// writeLock serializes f and writes it atomically to composer-go.lock.
+// writeLock serializes f and writes it atomically to gomposer.lock.
 func writeLock(projectDir string, f *lock.File) error {
 	data, err := f.Encode()
 	if err != nil {
 		return fmt.Errorf("orchestrator: encode lock: %w", err)
 	}
-	final := filepath.Join(projectDir, "composer-go.lock")
+	final := filepath.Join(projectDir, "gomposer.lock")
 	tmp := final + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("orchestrator: write lock: %w", err)
@@ -412,7 +412,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		// already has warnings, re-emit them now.
 		if !opts.Quiet {
 			for _, w := range lockFile.Warnings {
-				fmt.Fprintln(os.Stderr, "composer-go: "+w)
+				fmt.Fprintln(os.Stderr, "gomposer: "+w)
 			}
 		}
 	}
@@ -508,7 +508,7 @@ func evaluatePlatformWarnings(
 			warnings = append(warnings, line)
 			hardFails = append(hardFails, line)
 			if !quiet {
-				fmt.Fprintln(stderr, "composer-go: "+line)
+				fmt.Fprintln(stderr, "gomposer: "+line)
 			}
 		}
 	}
@@ -516,7 +516,7 @@ func evaluatePlatformWarnings(
 		const libLine = "ignoring lib-* platform requirements (not implemented)"
 		warnings = append(warnings, libLine)
 		if !quiet {
-			fmt.Fprintln(stderr, "composer-go: "+libLine)
+			fmt.Fprintln(stderr, "gomposer: "+libLine)
 		}
 	}
 	if noDev && len(hardFails) > 0 {

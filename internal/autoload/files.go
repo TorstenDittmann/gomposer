@@ -4,7 +4,7 @@ import (
 	"path"
 	"sort"
 
-	"github.com/torstendittmann/composer-go/internal/manifest"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 // FileEntry is one entry in the emitted $files array. PackageName is the
