@@ -236,6 +236,14 @@ func decodeV2(name string, body []byte) (*registry.PackageMetadata, error) {
 	}
 	out := &registry.PackageMetadata{Name: name, Versions: make([]registry.PackageVersion, 0, len(versions))}
 	for _, v := range versions {
+		// Drop versions with no install method. Packagist occasionally
+		// publishes dev-branch entries with both `dist` and `source` set
+		// to JSON null (observed for symfony/http-client 8.1.x-dev); the
+		// fetcher has no way to install them and the resolver must not
+		// pick them.
+		if v.Dist.URL == "" && v.Source.URL == "" {
+			continue
+		}
 		out.Versions = append(out.Versions, registry.PackageVersion{
 			Name:        v.Name,
 			Version:     v.Version,

@@ -81,6 +81,52 @@ func TestLookupHappyPath(t *testing.T) {
 	}
 }
 
+// TestLookupSkipsVersionsWithNoInstallMethod mirrors a real Packagist
+// anomaly observed for symfony/http-client v8.1.x-dev (2026-06): the
+// version arrives with both `dist` and `source` set to JSON null, meaning
+// no install method exists. Such versions must be dropped at the registry
+// boundary; otherwise the resolver can pick one and the fetcher aborts the
+// install with `unsupported dist type ""`.
+func TestLookupSkipsVersionsWithNoInstallMethod(t *testing.T) {
+	// The client fetches /p2/<name>.json (tagged) and /p2/<name>~dev.json
+	// (branches) and merges. Put the distless version on the dev side, the
+	// good version on the stable side — mirrors the real symfony anomaly.
+	const stableHalf = `{"packages":{"vendor/pkg":[
+		{"name":"vendor/pkg","version":"v1.0.0","version_normalized":"1.0.0.0","type":"library",
+		 "source":{"type":"git","url":"https://example.invalid/vendor/pkg.git","reference":"good"},
+		 "dist":{"type":"zip","url":"https://example.invalid/pkg-1.0.0.zip","shasum":"deadbeef"},
+		 "require":{}}
+	]}}`
+	const devHalf = `{"packages":{"vendor/pkg":[
+		{"name":"vendor/pkg","version":"dev-broken","version_normalized":"dev-broken","type":"library",
+		 "source":null,"dist":null,"require":{}}
+	]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "~dev.json") {
+			_, _ = w.Write([]byte(devHalf))
+			return
+		}
+		_, _ = w.Write([]byte(stableHalf))
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, CacheDir: t.TempDir(), HTTPClient: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, err := c.Lookup(context.Background(), "vendor/pkg")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if len(md.Versions) != 1 {
+		t.Fatalf("Versions = %d, want 1 (dev-broken should be filtered)", len(md.Versions))
+	}
+	if md.Versions[0].Version != "v1.0.0" {
+		t.Errorf("kept the wrong version: %q", md.Versions[0].Version)
+	}
+}
+
 func TestLookupNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
