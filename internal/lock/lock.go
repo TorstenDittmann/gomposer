@@ -1,8 +1,9 @@
-// Package lock handles gomposer.lock read and write.
+// Package lock handles composer.lock read and write.
 //
-// The on-disk format is documented in
-// docs/superpowers/specs/2026-05-07-gomposer-design.md (section "Lockfile
-// format"). Field renames here MUST be reflected in the spec.
+// The on-disk shape mirrors Composer's own composer.lock so upstream
+// Composer can consume what gomposer emits. See
+// docs/superpowers/specs/2026-06-18-composer-lock-compat-design.md for
+// the design rationale and field-level mapping.
 package lock
 
 import (
@@ -11,66 +12,52 @@ import (
 	"fmt"
 )
 
-// SchemaVersion is the on-disk format version this build understands.
-// Decode rejects files with a different SchemaVersion to force a clean
-// rebuild rather than guessing at compatibility.
-const SchemaVersion = 1
-
+// File is the top-level composer.lock structure. JSON tags mirror
+// Composer's Locker::save output verbatim.
 type File struct {
-	SchemaVersion       int       `json:"schemaVersion"`
-	Generator           Generator `json:"generator"`
-	ManifestContentHash string    `json:"manifestContentHash"`
-	PlatformFingerprint string    `json:"platformFingerprint"`
-	Stability           Stability `json:"stability"`
-	Packages            []Package `json:"packages"`
-	PackagesDev         []Package `json:"packagesDev,omitempty"`
-	Aliases             []Alias   `json:"aliases,omitempty"`
-	// Warnings, if non-empty, are human-readable strings the orchestrator
-	// should print to stderr after a cache hit. They mirror what would have
-	// been printed during a fresh resolution and exist so cache-hit runs
-	// produce identical UX.
-	//
-	// We store them in the lockfile (NOT only in the resolution-result
-	// cache) because the JSON lockfile is the canonical source of truth a
-	// user can inspect, and a future `gomposer check` should be able to
-	// re-print them without re-resolving.
-	Warnings []string `json:"warnings,omitempty"`
+	Readme            []string          `json:"_readme,omitempty"`
+	ContentHash       string            `json:"content-hash"`
+	Packages          []Package         `json:"packages"`
+	PackagesDev       []Package         `json:"packages-dev"`
+	Aliases           []Alias           `json:"aliases"`
+	MinimumStability  string            `json:"minimum-stability"`
+	StabilityFlags    map[string]int    `json:"stability-flags"`
+	PreferStable      bool              `json:"prefer-stable"`
+	PreferLowest      bool              `json:"prefer-lowest"`
+	Platform          map[string]string `json:"platform"`
+	PlatformDev       map[string]string `json:"platform-dev"`
+	PlatformOverrides map[string]string `json:"platform-overrides,omitempty"`
+	PluginAPIVersion  string            `json:"plugin-api-version,omitempty"`
 }
 
-type Generator struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-type Stability struct {
-	MinimumStability string `json:"minimumStability"`
-	PreferStable     bool   `json:"preferStable"`
-}
-
+// Package is one locked package. Field set matches the subset of
+// Composer's per-package output that gomposer populates. Optional-in-
+// Composer fields we don't emit (authors, license, description,
+// keywords, homepage, funding, support) are omitted; Composer accepts
+// their absence.
 type Package struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	// Type is the composer "type" value ("library", "composer-plugin",
-	// "composer-installer", etc.). The orchestrator uses it to detect plugins
-	// and emit a warning; it is otherwise informational.
-	Type     string            `json:"type,omitempty"`
-	Source   Source            `json:"source"`
-	Dist     Dist              `json:"dist"`
-	Require  map[string]string `json:"require,omitempty"`
-	Autoload map[string]any    `json:"autoload,omitempty"`
-	Suggest  map[string]string `json:"suggest,omitempty"`
+	Name            string            `json:"name"`
+	Version         string            `json:"version"`
+	Type            string            `json:"type,omitempty"`
+	Source          Source            `json:"source,omitempty"`
+	Dist            Dist              `json:"dist,omitempty"`
+	Require         map[string]string `json:"require,omitempty"`
+	Autoload        map[string]any    `json:"autoload,omitempty"`
+	NotificationURL string            `json:"notification-url,omitempty"`
+	Time            string            `json:"time,omitempty"`
 }
 
 type Source struct {
-	Type string `json:"type"`
-	URL  string `json:"url"`
-	Ref  string `json:"ref"`
+	Type      string `json:"type"`
+	URL       string `json:"url"`
+	Reference string `json:"reference"`
 }
 
 type Dist struct {
-	Type   string `json:"type"`
-	URL    string `json:"url"`
-	Sha256 string `json:"sha256"`
+	Type      string `json:"type"`
+	URL       string `json:"url"`
+	Reference string `json:"reference,omitempty"`
+	Shasum    string `json:"shasum"`
 }
 
 type Alias struct {
@@ -79,12 +66,12 @@ type Alias struct {
 	Alias   string `json:"alias"`
 }
 
-// Encode serializes the lockfile deterministically: 2-space indent, sorted
-// map keys (Go's encoding/json sorts maps by default), trailing newline.
+// Encode serializes deterministically. 2-space indent + SetEscapeHTML
+// (false) + trailing "\n". Map keys are sorted by encoding/json.
 func (f *File) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	enc.SetIndent("", "  ")
+	enc.SetIndent("", "    ")
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(f); err != nil {
 		return nil, fmt.Errorf("lock: encode: %w", err)
@@ -92,14 +79,13 @@ func (f *File) Encode() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Decode parses a lockfile and rejects unknown schema versions.
+// Decode parses a composer.lock. Unknown fields are ignored (Composer may
+// add optional metadata we don't consume). Callers that need round-trip
+// preservation should track that separately.
 func Decode(data []byte) (*File, error) {
 	var f File
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("lock: decode: %w", err)
-	}
-	if f.SchemaVersion != SchemaVersion {
-		return nil, fmt.Errorf("lock: unsupported schemaVersion %d (this build supports %d) — delete gomposer.lock to rebuild", f.SchemaVersion, SchemaVersion)
 	}
 	return &f, nil
 }

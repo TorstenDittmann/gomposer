@@ -2,96 +2,92 @@ package lock
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 )
 
-func TestRoundTrip(t *testing.T) {
-	in := &File{
-		SchemaVersion:       1,
-		Generator:           Generator{Name: "gomposer", Version: "0.0.0-test"},
-		ManifestContentHash: "sha256:abc",
-		PlatformFingerprint: "php-8.2.0;ext-mbstring",
-		Stability:           Stability{MinimumStability: "stable", PreferStable: true},
+func TestFileRoundTripsThroughEncodeDecode(t *testing.T) {
+	orig := &File{
+		Readme:      []string{"line one", "line two"},
+		ContentHash: "abc123",
 		Packages: []Package{{
-			Name:    "monolog/monolog",
-			Version: "3.5.0",
-			Source:  Source{Type: "git", URL: "https://github.com/Seldaek/monolog.git", Ref: "abc123"},
-			Dist:    Dist{Type: "zip", URL: "https://api.github.com/repos/Seldaek/monolog/zipball/abc123", Sha256: "sha256:deadbeef"},
-			Require: map[string]string{"php": ">=8.1"},
+			Name:            "acme/lib",
+			Version:         "1.0.0",
+			Type:            "library",
+			Source:          Source{Type: "git", URL: "https://example.com/acme/lib.git", Reference: "deadbeef"},
+			Dist:            Dist{Type: "zip", URL: "https://example.com/acme/lib.zip", Reference: "deadbeef", Shasum: "cafebabe"},
+			Require:         map[string]string{"php": ">=8.1"},
+			Autoload:        map[string]any{"psr-4": map[string]string{"Acme\\Lib\\": "src/"}},
+			NotificationURL: "https://packagist.org/downloads/",
+			Time:            "2026-05-01T00:00:00+00:00",
 		}},
+		PackagesDev:      []Package{},
+		Aliases:          []Alias{{Package: "acme/lib", Version: "9999999-dev", Alias: "1.x-dev"}},
+		MinimumStability: "stable",
+		StabilityFlags:   map[string]int{"acme/lib": 5},
+		PreferStable:     true,
+		PreferLowest:     false,
+		Platform:         map[string]string{"php": ">=8.1"},
+		PlatformDev:      map[string]string{},
+		PluginAPIVersion: "2.6.0",
 	}
-
-	data, err := in.Encode()
+	data, err := orig.Encode()
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-
-	out, err := Decode(data)
+	got, err := Decode(data)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-
-	if out.SchemaVersion != 1 {
-		t.Errorf("SchemaVersion = %d, want 1", out.SchemaVersion)
-	}
-	if len(out.Packages) != 1 || out.Packages[0].Name != "monolog/monolog" {
-		t.Errorf("Packages mismatch after round trip: %+v", out.Packages)
-	}
-	if out.Packages[0].Dist.Sha256 != "sha256:deadbeef" {
-		t.Errorf("Dist.Sha256 lost in round trip")
-	}
-
-	again, _ := in.Encode()
-	if !bytes.Equal(data, again) {
-		t.Errorf("Encode is not deterministic")
-	}
-}
-
-func TestPackageTypeRoundTrips(t *testing.T) {
-	in := &File{
-		SchemaVersion: SchemaVersion,
-		Generator:     Generator{Name: "gomposer", Version: "0.1.0"},
-		Packages: []Package{
-			{Name: "composer/installers", Version: "2.3.0", Type: "composer-installer"},
-			{Name: "psr/log", Version: "3.0.0", Type: "library"},
-		},
-	}
-	data, err := in.Encode()
+	// Encode again and compare byte-for-byte to prove determinism.
+	back, err := got.Encode()
 	if err != nil {
-		t.Fatalf("Encode: %v", err)
+		t.Fatalf("re-Encode: %v", err)
 	}
-	out, err := Decode(data)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-	if out.Packages[0].Type != "composer-installer" || out.Packages[1].Type != "library" {
-		t.Errorf("Type round-trip failed: %+v", out.Packages)
+	if !bytes.Equal(data, back) {
+		t.Errorf("round-trip not byte-stable")
 	}
 }
 
-func TestDecodeRejectsUnknownSchema(t *testing.T) {
-	data := []byte(`{"schemaVersion": 99}`)
-	_, err := Decode(data)
-	if err == nil {
-		t.Errorf("Decode should reject schemaVersion=99")
+// TestEncodedShapeMatchesComposer verifies the JSON key names and
+// structure follow Composer's on-disk shape (hyphenated keys, packages/
+// packages-dev/aliases at top level, per-package notification-url).
+func TestEncodedShapeMatchesComposer(t *testing.T) {
+	f := &File{
+		ContentHash: "hash",
+		Packages: []Package{{
+			Name: "a/b", Version: "1.0.0",
+			Dist: Dist{Type: "zip", URL: "https://example.com/x.zip", Shasum: "abc"},
+		}},
+		MinimumStability: "stable",
+		StabilityFlags:   map[string]int{},
+		Platform:         map[string]string{},
+		PlatformDev:      map[string]string{},
 	}
-}
-
-func TestLockFileRoundTripsWarnings(t *testing.T) {
-	in := &File{
-		SchemaVersion: SchemaVersion,
-		Generator:     Generator{Name: "gomposer", Version: "test"},
-		Warnings:      []string{"acme/x: php ^7.4 not satisfied (have php 8.2.14)"},
-	}
-	enc, err := in.Encode()
+	data, err := f.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := Decode(enc)
-	if err != nil {
+	// Decode into an anonymous map so we can assert key names.
+	var top map[string]any
+	if err := json.Unmarshal(data, &top); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Warnings) != 1 || out.Warnings[0] != in.Warnings[0] {
-		t.Errorf("warnings round-trip = %+v", out.Warnings)
+	for _, want := range []string{"content-hash", "packages", "packages-dev", "aliases", "minimum-stability", "stability-flags", "prefer-stable", "prefer-lowest", "platform", "platform-dev"} {
+		if _, ok := top[want]; !ok {
+			t.Errorf("top-level key %q missing", want)
+		}
+	}
+	pkgs, ok := top["packages"].([]any)
+	if !ok || len(pkgs) != 1 {
+		t.Fatalf("packages: %#v", top["packages"])
+	}
+	pkg := pkgs[0].(map[string]any)
+	dist, ok := pkg["dist"].(map[string]any)
+	if !ok {
+		t.Fatalf("dist: %#v", pkg["dist"])
+	}
+	if _, ok := dist["shasum"]; !ok {
+		t.Errorf("dist.shasum missing (should NOT be 'sha256')")
 	}
 }
