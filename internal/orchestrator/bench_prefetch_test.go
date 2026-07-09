@@ -55,11 +55,11 @@ func BenchmarkPrefetchVsNoPrefetch(b *testing.B) {
 			Dist: lock.Dist{
 				Type:   "zip",
 				URL:    fmt.Sprintf("http://bench/p%02d.zip", i),
-				Sha256: fmt.Sprintf("sha256bench%02d", i),
+				Shasum: fmt.Sprintf("sha256bench%02d", i),
 			},
 		}
 	}
-	lf := &lock.File{SchemaVersion: lock.SchemaVersion, Packages: pkgs}
+	lf := &lock.File{Packages: pkgs}
 
 	// runScenario directly exercises the prefetch/fetchAll interaction without
 	// going through the full pipeline (which would require a live lockfile on
@@ -114,7 +114,7 @@ type benchFetchImpl struct {
 }
 
 func (f *benchFetchImpl) Fetch(ctx context.Context, pkg lock.Package) (string, error) {
-	sha := pkg.Dist.Sha256
+	sha := pkg.Dist.Shasum
 	if sha == "" {
 		sha = pkg.Name
 	}
@@ -158,8 +158,8 @@ func sha256OfBench(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// writeFixtureLockWithDist writes a gomposer.lock where every package
-// has a real Dist.URL and Dist.Sha256 pointing at the provided url and sha.
+// writeFixtureLockWithDist writes a composer.lock where every package
+// has a real Dist.URL and Dist.Shasum pointing at the provided url and sha.
 // This lets the production fetcher (used in the benchmark) actually attempt
 // the download.
 func writeFixtureLockWithDist(tb testing.TB, dir string, names []string, url, sha string) {
@@ -173,8 +173,8 @@ func writeFixtureLockWithDist(tb testing.TB, dir string, names []string, url, sh
 	writeFixtureLockWithDistPerPkg(tb, dir, names, urls, shas)
 }
 
-// writeFixtureLockWithDistPerPkg writes a gomposer.lock where each package
-// has an individually specified Dist.URL and Dist.Sha256.
+// writeFixtureLockWithDistPerPkg writes a composer.lock where each package
+// has an individually specified Dist.URL and Dist.Shasum.
 func writeFixtureLockWithDistPerPkg(tb testing.TB, dir string, names, urls, shas []string) {
 	tb.Helper()
 	pkgs := make([]lock.Package, len(names))
@@ -182,18 +182,17 @@ func writeFixtureLockWithDistPerPkg(tb testing.TB, dir string, names, urls, shas
 		pkgs[i] = lock.Package{
 			Name:    n,
 			Version: "1.0.0",
-			Dist:    lock.Dist{Type: "zip", URL: urls[i], Sha256: shas[i]},
+			Dist:    lock.Dist{Type: "zip", URL: urls[i], Shasum: shas[i]},
 		}
 	}
 	f := &lock.File{
-		SchemaVersion: lock.SchemaVersion,
-		Packages:      pkgs,
+		Packages: pkgs,
 	}
 	data, err := f.Encode()
 	if err != nil {
 		tb.Fatalf("writeFixtureLockWithDistPerPkg: encode: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "composer.lock"), data, 0o644); err != nil {
 		tb.Fatalf("writeFixtureLockWithDistPerPkg: write: %v", err)
 	}
 }

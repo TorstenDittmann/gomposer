@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/torstendittmann/gomposer/internal/lock"
 	"github.com/torstendittmann/gomposer/internal/manifest"
 	"github.com/torstendittmann/gomposer/internal/registry"
 	"github.com/torstendittmann/gomposer/internal/scripts"
@@ -164,8 +163,8 @@ func TestPreInstallFailureAbortsPipeline(t *testing.T) {
 		t.Fatal("expected error from failing pre-install-cmd")
 	}
 	// The lockfile must NOT have been written; pipeline aborted.
-	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err == nil {
-		t.Error("gomposer.lock should not exist when pre-install fails")
+	if _, err := os.Stat(filepath.Join(dir, "composer.lock")); err == nil {
+		t.Error("composer.lock should not exist when pre-install fails")
 	}
 }
 
@@ -188,10 +187,9 @@ func TestEventWithNoEntriesIsNoop(t *testing.T) {
 	// the orchestrator chooses to invoke. Assert that at least nothing fails and no panics:
 	_ = rec.seen()
 	// The lockfile and a manifest with no scripts map both succeed.
-	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "composer.lock")); err != nil {
 		t.Errorf("lockfile should exist: %v", err)
 	}
 	// Sanity: ensure nothing panicked accessing nil maps.
 	_ = manifest.Manifest{}
-	_ = lock.SchemaVersion
 }

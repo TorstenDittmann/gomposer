@@ -169,8 +169,8 @@ func writeFixtureManifest(tb testing.TB, dir string) {
 	}
 }
 
-// writeFixtureLock writes a minimal gomposer.lock with the given package
-// names as production packages. Each package gets a stub Dist URL and sha256.
+// writeFixtureLock writes a minimal composer.lock with the given package
+// names as production packages. Each package gets a stub Dist URL and shasum.
 func writeFixtureLock(tb testing.TB, dir string, names []string) {
 	tb.Helper()
 	pkgs := make([]lock.Package, len(names))
@@ -178,18 +178,17 @@ func writeFixtureLock(tb testing.TB, dir string, names []string) {
 		pkgs[i] = lock.Package{
 			Name:    n,
 			Version: "1.0.0",
-			Dist:    lock.Dist{Type: "zip", URL: "http://stub/" + n, Sha256: "stub-sha-" + n},
+			Dist:    lock.Dist{Type: "zip", URL: "http://stub/" + n, Shasum: "stub-sha-" + n},
 		}
 	}
 	f := &lock.File{
-		SchemaVersion: lock.SchemaVersion,
-		Packages:      pkgs,
+		Packages: pkgs,
 	}
 	data, err := f.Encode()
 	if err != nil {
 		tb.Fatalf("writeFixtureLock: encode: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "composer.lock"), data, 0o644); err != nil {
 		tb.Fatalf("writeFixtureLock: write: %v", err)
 	}
 }

@@ -45,8 +45,8 @@ func TestLiveInstallPsrLog(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, "vendor", "autoload.php")); err != nil {
 		t.Errorf("vendor/autoload.php not generated: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, "gomposer.lock")); err != nil {
-		t.Errorf("gomposer.lock not written: %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, "composer.lock")); err != nil {
+		t.Errorf("composer.lock not written: %v", err)
 	}
 
 	// At least one PHP source file should be present in the materialized package.
@@ -93,7 +93,7 @@ func TestLiveUpdateRewritesLock(t *testing.T) {
 	if err := Update(context.Background(), Options{ProjectDir: dir}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
-		t.Errorf("gomposer.lock not written by update: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "composer.lock")); err != nil {
+		t.Errorf("composer.lock not written by update: %v", err)
 	}
 }

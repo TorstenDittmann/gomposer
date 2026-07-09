@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -105,12 +106,6 @@ func TestResolveProducesLockFile(t *testing.T) {
 	if len(got.Packages) != 1 || got.Packages[0].Name != "acme/leaf" {
 		t.Errorf("Packages = %+v", got.Packages)
 	}
-	if got.PlatformFingerprint != "php-8.2.0;ext-json;ext-mbstring" {
-		t.Errorf("PlatformFingerprint = %q", got.PlatformFingerprint)
-	}
-	if got.SchemaVersion != lock.SchemaVersion {
-		t.Errorf("SchemaVersion = %d, want %d", got.SchemaVersion, lock.SchemaVersion)
-	}
 }
 
 // --- Task 5: fetch phase tests ---
@@ -133,9 +128,9 @@ func (f *fakeFetcher) Fetch(_ context.Context, pkg lock.Package) (string, error)
 
 func TestFetchPhaseDownloadsAllPackages(t *testing.T) {
 	pkgs := []lock.Package{
-		{Name: "a/x", Version: "1.0.0", Dist: lock.Dist{Type: "zip", URL: "u1", Sha256: "s1"}},
-		{Name: "b/y", Version: "2.0.0", Dist: lock.Dist{Type: "zip", URL: "u2", Sha256: "s2"}},
-		{Name: "c/z", Version: "3.0.0", Dist: lock.Dist{Type: "zip", URL: "u3", Sha256: "s3"}},
+		{Name: "a/x", Version: "1.0.0", Dist: lock.Dist{Type: "zip", URL: "u1", Shasum: "s1"}},
+		{Name: "b/y", Version: "2.0.0", Dist: lock.Dist{Type: "zip", URL: "u2", Shasum: "s2"}},
+		{Name: "c/z", Version: "3.0.0", Dist: lock.Dist{Type: "zip", URL: "u3", Shasum: "s3"}},
 	}
 	ff := &fakeFetcher{}
 	keys, err := fetchAll(context.Background(), pkgs, ff, 2, nil)
@@ -240,14 +235,12 @@ func TestAutoloadPhaseInvokesGenerator(t *testing.T) {
 func TestWriteLockProducesValidJSON(t *testing.T) {
 	dir := t.TempDir()
 	f := &lock.File{
-		SchemaVersion: lock.SchemaVersion,
-		Generator:     lock.Generator{Name: "gomposer", Version: "0.1.0"},
-		Packages:      []lock.Package{{Name: "psr/log", Version: "3.0.0"}},
+		Packages: []lock.Package{{Name: "psr/log", Version: "3.0.0"}},
 	}
 	if err := writeLock(dir, f); err != nil {
 		t.Fatalf("writeLock: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
+	data, err := os.ReadFile(filepath.Join(dir, "composer.lock"))
 	if err != nil {
 		t.Fatalf("read lock: %v", err)
 	}
@@ -286,8 +279,8 @@ func TestInstallFullPipelineWithFakes(t *testing.T) {
 	if err := Install(context.Background(), opts); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
-		t.Errorf("gomposer.lock not written: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "composer.lock")); err != nil {
+		t.Errorf("composer.lock not written: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "vendor", "autoload.php")); err != nil {
 		t.Errorf("vendor/autoload.php not written: %v", err)
@@ -358,7 +351,12 @@ func TestRegistryAutoloadFromMapExtractsFilesClassmap(t *testing.T) {
 	}
 }
 
-func TestInstallEmitsPlatformWarningsAndPersistsOnLock(t *testing.T) {
+// TestInstallEmitsPlatformWarnings verifies that a platform-mismatched
+// package produces a warning on stderr. lock.File (Composer's schema) has
+// no field to persist these across runs, so evaluatePlatformWarnings is
+// re-run against the live package set on every Install call (cache-hit or
+// not) instead of replaying stored state; see pipeline.go's runFullPipeline.
+func TestInstallEmitsPlatformWarnings(t *testing.T) {
 	resetPlatformProbeForTest(t, "8.2.14")
 
 	dir := t.TempDir()
@@ -381,20 +379,27 @@ func TestInstallEmitsPlatformWarningsAndPersistsOnLock(t *testing.T) {
 		Materializer: &fakeMaterializer{},
 		Autoloader:   &fakeAutoloader{},
 	}
-	if err := Install(context.Background(), opts); err != nil {
-		t.Fatalf("Install: %v", err)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	installErr := Install(context.Background(), opts)
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if installErr != nil {
+		t.Fatalf("Install: %v", installErr)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
-	if err != nil {
-		t.Fatalf("read lock: %v", err)
+	if !strings.Contains(string(out), "acme/leaf") {
+		t.Errorf("expected platform warning for acme/leaf on stderr; got %q", out)
 	}
-	f, err := lock.Decode(data)
-	if err != nil {
-		t.Fatalf("decode lock: %v", err)
-	}
-	if len(f.Warnings) == 0 {
-		t.Errorf("expected platform warning persisted on lock; got %+v", f.Warnings)
+
+	if _, err := os.Stat(filepath.Join(dir, "composer.lock")); err != nil {
+		t.Errorf("composer.lock not written: %v", err)
 	}
 }
 
@@ -445,15 +450,22 @@ func TestInstallIgnorePlatformReqSuppresses(t *testing.T) {
 		Autoloader:         &fakeAutoloader{},
 		IgnorePlatformReqs: []string{"php"},
 	}
-	if err := Install(context.Background(), opts); err != nil {
-		t.Fatalf("Install: %v", err)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
-	f, _ := lock.Decode(data)
-	for _, w := range f.Warnings {
-		if strings.Contains(w, "acme/leaf") {
-			t.Errorf("warning should be suppressed: %q", w)
-		}
+	old := os.Stderr
+	os.Stderr = w
+	installErr := Install(context.Background(), opts)
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if installErr != nil {
+		t.Fatalf("Install: %v", installErr)
+	}
+	if strings.Contains(string(out), "acme/leaf") {
+		t.Errorf("warning should be suppressed: %q", out)
 	}
 }
 

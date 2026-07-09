@@ -85,7 +85,7 @@ func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error
 	if err != nil {
 		return nil, fmt.Errorf("orchestrator: read manifest bytes: %w", err)
 	}
-	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "gomposer.lock"))
+	lockBytes, _ := os.ReadFile(filepath.Join(opts.ProjectDir, "composer.lock"))
 
 	ignore := buildIgnoreSet(opts.IgnorePlatformReqs)
 
@@ -230,15 +230,15 @@ func vendorPath(projectDir, packageName string) string {
 	return filepath.Join(projectDir, "vendor", filepath.FromSlash(packageName))
 }
 
-// backfillSha sets pkg.Dist.Sha256 from keys[pkg.Name] when the dist sha is
+// backfillSha sets pkg.Dist.Shasum from keys[pkg.Name] when the dist sha is
 // empty. Packagist v2 sometimes returns empty shasums for older entries; the
 // fetcher computes the real sha during streaming download and that becomes
 // the store key.
 func backfillSha(pkgs []lock.Package, keys map[string]string) {
 	for i := range pkgs {
-		if pkgs[i].Dist.Sha256 == "" {
+		if pkgs[i].Dist.Shasum == "" {
 			if k, ok := keys[pkgs[i].Name]; ok {
-				pkgs[i].Dist.Sha256 = k
+				pkgs[i].Dist.Shasum = k
 			}
 		}
 	}
@@ -280,13 +280,13 @@ func generateAutoloader(ctx context.Context, projectDir string, pkgs []lock.Pack
 	return nil
 }
 
-// writeLock serializes f and writes it atomically to gomposer.lock.
+// writeLock serializes f and writes it atomically to composer.lock.
 func writeLock(projectDir string, f *lock.File) error {
 	data, err := f.Encode()
 	if err != nil {
 		return fmt.Errorf("orchestrator: encode lock: %w", err)
 	}
-	final := filepath.Join(projectDir, "gomposer.lock")
+	final := filepath.Join(projectDir, "composer.lock")
 	tmp := final + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("orchestrator: write lock: %w", err)
@@ -384,23 +384,14 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		all = append(all, lockFile.PackagesDev...)
 	}
 
-	// Platform warnings: emit, persist on the lockfile so cache-hit runs can
-	// re-emit them, and (in --no-dev) escalate to a hard error.
-	warnings, err := evaluatePlatformWarnings(all, ps.platform, ps.ignoreSet, opts.NoDev, opts.Quiet, os.Stderr)
+	// Platform warnings: lock.File has no field to persist these on (the
+	// Composer-shaped schema has no room for them), so every run —
+	// cache-hit or freshly resolved — re-evaluates and re-emits them from
+	// the live package set instead of replaying stored state.
+	_, err = evaluatePlatformWarnings(all, ps.platform, ps.ignoreSet, opts.NoDev, opts.Quiet, os.Stderr)
 	if err != nil {
 		prefetch.Wait()
 		return err
-	}
-	if len(warnings) > 0 {
-		lockFile.Warnings = warnings
-	} else if !opts.NoDev {
-		// Replay-on-cache-hit: if we're using a cached/existing lock and it
-		// already has warnings, re-emit them now.
-		if !opts.Quiet {
-			for _, w := range lockFile.Warnings {
-				fmt.Fprintln(os.Stderr, "gomposer: "+w)
-			}
-		}
 	}
 
 	// Join the prefetcher: every speculative download has either completed
@@ -414,7 +405,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		t.End("fetch")
 		return err
 	}
-	// Back-fill Dist.Sha256 from the fetched keys so the lockfile records the
+	// Back-fill Dist.Shasum from the fetched keys so the lockfile records the
 	// actual content hash. Packagist sometimes ships empty shasums; we trust
 	// the streaming hash computed during download.
 	backfillSha(lockFile.Packages, keys)
@@ -545,7 +536,7 @@ func (a *fetcherAdapter) Fetch(ctx context.Context, pkg lock.Package) (string, e
 		Dist: registry.Dist{
 			Type: pkg.Dist.Type,
 			URL:  pkg.Dist.URL,
-			Sha:  pkg.Dist.Sha256,
+			Sha:  pkg.Dist.Shasum,
 		},
 	}
 	sha, err := a.f.Fetch(ctx, pv)
@@ -567,7 +558,7 @@ func (a *fetcherAdapter) fetchViaGitArchive(ctx context.Context, pkg lock.Packag
 	tmpPath := tmp.Name()
 	hasher := sha256.New()
 	mw := io.MultiWriter(tmp, hasher)
-	if err := client.Archive(ctx, pkg.Source.Ref, mw); err != nil {
+	if err := client.Archive(ctx, pkg.Source.Reference, mw); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("orchestrator: %s: %w", pkg.Name, err)
