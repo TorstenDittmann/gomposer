@@ -29,6 +29,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Several orchestrator/scripts tests shell out to `php` to run the
+      # platform probe, script bootstrap, and autoload e2e checks. We pin a
+      # minimal PHP to keep the runners deterministic across ubuntu-latest
+      # and macos-latest (Apple stopped pre-installing PHP on macos-14+).
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          coverage: none
+          tools: none
+
       - name: Verify go.mod is tidy
         run: |
           go mod tidy
