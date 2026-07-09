@@ -78,6 +78,16 @@ type Options struct {
 	//   - NoNetwork is true,
 	//   - the lockfile is absent or fails to parse.
 	NoPrefetch bool
+	// NoMetadataPrefetch disables the resolver-metadata prefetch. Default
+	// (false) means prefetch is on. Symmetric to NoPrefetch (which controls
+	// the artifact prefetch). Mostly useful for benchmarks measuring the
+	// isolated wall-clock contribution.
+	//
+	// Metadata prefetch is also implicitly disabled when:
+	//   - NoNetwork is true,
+	//   - opts.Source is nil,
+	//   - the warm set is empty.
+	NoMetadataPrefetch bool
 	// Source overrides the default Packagist source. Tests inject a fake
 	// here. Production callers leave it nil.
 	Source registry.SourceLookup

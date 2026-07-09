@@ -7,6 +7,11 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/platform"
 )
 
 // MetadataPrefetcher is the runtime handle returned by
@@ -39,5 +44,84 @@ func newNoopMetadataPrefetcher() *MetadataPrefetcher {
 	return &MetadataPrefetcher{}
 }
 
-// unused imports guard for later tasks; remove when Task 2 uses them.
-var _ = context.Background
+// collectMetadataPrefetchNames unions the manifest requires with the
+// existing lock's package list, filters out platform reqs, and returns a
+// deduplicated slice.
+func collectMetadataPrefetchNames(ps *pipelineState, includeDev bool) []string {
+	if ps == nil || ps.manifest == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if platform.IsPlatformReq(name) {
+			return
+		}
+		seen[name] = struct{}{}
+	}
+	for name := range ps.manifest.Require {
+		add(name)
+	}
+	if includeDev {
+		for name := range ps.manifest.RequireDev {
+			add(name)
+		}
+	}
+	if len(ps.lockBytes) > 0 {
+		if lf, err := lock.Decode(ps.lockBytes); err == nil {
+			for _, p := range lf.Packages {
+				add(p.Name)
+			}
+			if includeDev {
+				for _, p := range lf.PackagesDev {
+					add(p.Name)
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	return out
+}
+
+// maybeStartMetadataPrefetch begins warming metadata caches for the
+// upcoming resolve. Returns a noop *MetadataPrefetcher when prefetch is
+// disabled or there is nothing to warm. Callers Wait() unconditionally.
+func maybeStartMetadataPrefetch(ctx context.Context, ps *pipelineState, opts Options) *MetadataPrefetcher {
+	if opts.NoMetadataPrefetch || opts.NoNetwork || opts.Source == nil {
+		return newNoopMetadataPrefetcher()
+	}
+	names := collectMetadataPrefetchNames(ps, !opts.NoDev)
+	if len(names) == 0 {
+		return newNoopMetadataPrefetcher()
+	}
+	p := &MetadataPrefetcher{}
+	p.wg.Add(1)
+	start := time.Now()
+	go func() {
+		defer p.wg.Done()
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(workerCount(opts.Workers))
+		for _, name := range names {
+			name := name
+			g.Go(func() error {
+				if _, err := opts.Source.Lookup(gctx, name); err != nil {
+					p.stats.mu.Lock()
+					p.stats.errors++
+					p.stats.mu.Unlock()
+					return nil // errors do not propagate
+				}
+				p.stats.mu.Lock()
+				p.stats.warmed++
+				p.stats.mu.Unlock()
+				return nil
+			})
+		}
+		_ = g.Wait()
+		p.stats.mu.Lock()
+		p.stats.duration = time.Since(start)
+		p.stats.mu.Unlock()
+	}()
+	return p
+}
