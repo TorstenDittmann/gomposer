@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -226,19 +225,15 @@ func TestMetadataPrefetchReducesResolveWallTime(t *testing.T) {
 	// up (a source with no memory of its own can never be "pre-warmed").
 	slow := &sleepySourceLookup{delay: 40 * time.Millisecond, versions: fakeMultiPkgVersions()}
 
-	// runFullPipeline caches resolution results on disk keyed by a hash of
-	// (manifest bytes, lock bytes, platform fingerprint) — NOT by ProjectDir,
-	// and NOT scoped to the test process (cache.Root() is a real, persistent
-	// directory on the host). Two Install() calls with byte-identical
-	// composer.json content — including across separate `go test` runs —
-	// would have the *second* one served entirely from that cache, bypassing
-	// Source.Lookup altogether and producing a "speedup" that has nothing to
-	// do with metadata prefetch. Stamp each run's manifest with a
-	// time-based nonce in an unused field so the resolution-cache key is
-	// unique every time this test runs, forcing a genuine resolve against
-	// the slow fake source both times.
+	// runFullPipeline also caches resolution results on disk, keyed by a hash
+	// of (manifest bytes, lock bytes, platform fingerprint). The serial and
+	// parallel runs below use byte-identical manifests, so each gets its own
+	// $XDG_CACHE_HOME (scoped to this test via t.TempDir()) to keep them from
+	// serving each other's resolution out of that cache — which would bypass
+	// Source.Lookup entirely and produce a "speedup" unrelated to prefetch.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	base := Options{
-		ProjectDir:   writeManifestObj(t, fakeMultiPkgManifest(uniqueNonce("serial"))),
+		ProjectDir:   writeManifestObj(t, fakeMultiPkgManifest()),
 		Source:       slow,
 		NoNetwork:    false,
 		Fetcher:      &fakeFetcher{},
@@ -251,12 +246,13 @@ func TestMetadataPrefetchReducesResolveWallTime(t *testing.T) {
 	}
 	tSerial := timeInstall(t, base)
 
-	// Fresh source + project dir (with a distinct nonce) for the parallel
-	// run so neither the fake registry's cache nor the on-disk resolution
-	// cache carries over from the baseline run.
+	// Fresh source + project dir + cache root for the parallel run so
+	// neither the fake registry's cache nor the on-disk resolution cache
+	// carries over from the baseline run.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	slow2 := &sleepySourceLookup{delay: 40 * time.Millisecond, versions: fakeMultiPkgVersions()}
 	base.Source = slow2
-	base.ProjectDir = writeManifestObj(t, fakeMultiPkgManifest(uniqueNonce("parallel")))
+	base.ProjectDir = writeManifestObj(t, fakeMultiPkgManifest())
 	base.NoMetadataPrefetch = false
 	tParallel := timeInstall(t, base)
 
@@ -309,19 +305,10 @@ func (s *sleepySourceLookup) Lookup(ctx context.Context, name string) (*registry
 	return v, nil
 }
 
-// uniqueNonce combines label with the current nanosecond timestamp so
-// repeated test runs never collide on the persistent, process-independent
-// resolution cache (see the comment in TestMetadataPrefetchReducesResolveWallTime).
-func uniqueNonce(label string) string {
-	return fmt.Sprintf("%s-%d", label, time.Now().UnixNano())
-}
-
 // fakeMultiPkgManifest returns a root manifest requiring 5 independent leaf
 // packages — enough to expose the serial-vs-parallel resolve gap without
-// making the test slow. nonce is stashed in an unused manifest field purely
-// to perturb the encoded bytes (see the resolution-cache note above); it has
-// no effect on resolution itself.
-func fakeMultiPkgManifest(nonce string) *manifest.Manifest {
+// making the test slow.
+func fakeMultiPkgManifest() *manifest.Manifest {
 	return &manifest.Manifest{
 		Name: "acme/app",
 		Require: map[string]string{
@@ -331,7 +318,6 @@ func fakeMultiPkgManifest(nonce string) *manifest.Manifest {
 			"d/d": "^1.0",
 			"e/e": "^1.0",
 		},
-		Extra: map[string]any{"test-nonce": nonce},
 	}
 }
 
