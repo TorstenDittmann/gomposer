@@ -66,8 +66,9 @@ type Alias struct {
 	Alias   string `json:"alias"`
 }
 
-// Encode serializes deterministically. 2-space indent + SetEscapeHTML
-// (false) + trailing "\n". Map keys are sorted by encoding/json.
+// Encode serializes deterministically. 4-space indent (matching Composer's
+// JsonFile::encode under JSON_PRETTY_PRINT) + SetEscapeHTML(false) +
+// trailing "\n". Map keys are sorted by encoding/json.
 func (f *File) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
