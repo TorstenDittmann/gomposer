@@ -11,11 +11,16 @@ import (
 	"github.com/torstendittmann/gomposer/internal/orchestrator"
 )
 
+// updateFn is the function called to run the update operation.
+// It can be swapped during testing.
+var updateFn = orchestrator.Update
+
 func newUpdateCmd() *cobra.Command {
 	var (
-		projectDir   string
-		allowPlugins []string // accepted for Composer-CLI compatibility; no-op (gomposer does not run plugins)
-		noPrefetch   bool
+		projectDir         string
+		allowPlugins       []string // accepted for Composer-CLI compatibility; no-op (gomposer does not run plugins)
+		noPrefetch         bool
+		noMetadataPrefetch bool
 	)
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -35,7 +40,7 @@ func newUpdateCmd() *cobra.Command {
 				ignored = append(ignored, "*")
 			}
 			_ = allowPlugins // explicitly unused
-			return orchestrator.Update(ctx, orchestrator.Options{
+			return updateFn(ctx, orchestrator.Options{
 				ProjectDir:         projectDir,
 				NoDev:              flagNoDev,
 				NoScripts:          flagNoScripts,
@@ -43,12 +48,14 @@ func newUpdateCmd() *cobra.Command {
 				Quiet:              flagQuiet,
 				IgnorePlatformReqs: ignored,
 				NoPrefetch:         noPrefetch,
+				NoMetadataPrefetch: noMetadataPrefetch,
 				Progress:           NewProgress(cmd.ErrOrStderr(), ProgressOptions{Quiet: flagQuiet}),
 			})
 		},
 	}
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")
 	cmd.Flags().BoolVar(&noPrefetch, "no-prefetch", false, "disable lock-driven speculative prefetch (benchmark hook)")
+	cmd.Flags().BoolVar(&noMetadataPrefetch, "no-metadata-prefetch", false, "disable resolver-metadata prefetch (benchmarking hook)")
 	cmd.Flags().StringSliceVar(&allowPlugins, "allow-plugins", nil,
 		"accepted for Composer compatibility; no-op (gomposer does not run plugins, so this flag has no effect)")
 	// Allow bare `--allow-plugins` with no value (Composer accepts that form).
