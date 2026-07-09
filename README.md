@@ -4,7 +4,7 @@ A Composer-compatible PHP dependency installer, written in Go, that aims for a 2
 
 ## Status
 
-Alpha. Stages 1–3 (core install path, real-world coverage, speed and polish) are complete and covered by an in-tree test suite. Stage 4 (cross-compiled release binaries, signed artifacts, Homebrew tap, install script) is in progress — for now you install from source.
+Alpha. Stages 1–3 (core install path, real-world coverage, speed and polish) are complete and covered by an in-tree test suite. Stage 4 (signed artifacts, Homebrew tap) is in progress; prebuilt binaries for macOS and Linux are already published to GitHub Releases.
 
 Not recommended for production use yet. Please try it on non-critical projects and file issues.
 
@@ -18,13 +18,23 @@ Not recommended for production use yet. Please try it on non-critical projects a
 
 ## Install
 
-Requires Go 1.25 or newer.
+**Prebuilt binary (macOS + Linux, amd64 + arm64):**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/gomposer/main/install.sh | sh
+```
+
+The script downloads the latest release from GitHub, verifies its SHA-256 against the release's `checksums.txt`, and installs the binary to `/usr/local/bin/gomposer` (falling back to `~/.local/bin` if the default isn't writable without sudo). Override with `GOMPOSER_INSTALL_DIR=/path/to/dir` or pin a version with `GOMPOSER_VERSION=v0.1.0`.
+
+**From source (requires Go 1.25+):**
 
 ```sh
 go install github.com/torstendittmann/gomposer/cmd/gomposer@latest
 ```
 
-Prebuilt binaries and a Homebrew tap will land with Stage 4.
+**Manual download:** each release on the [Releases page](https://github.com/TorstenDittmann/gomposer/releases) has a `.tar.gz` per platform plus a checksums file. Verify with `sha256sum -c`, extract, and drop the `gomposer` binary anywhere on your PATH.
+
+Homebrew and a Windows build are not planned for now.
 
 ## Usage
 

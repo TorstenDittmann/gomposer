@@ -16,11 +16,12 @@ var (
 	flagIgnorePlatformReqs []string
 )
 
-func newRootCmd() *cobra.Command {
+func newRootCmd(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gomposer",
 		Short:         "A fast Go-based PHP package manager",
 		Long:          "gomposer installs PHP packages described in composer.json. It is a compatible consumer of composer.json but writes its own gomposer.lock.",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -38,9 +39,11 @@ func newRootCmd() *cobra.Command {
 }
 
 // Execute runs the CLI and returns an error on failure. Errors are printed
-// to stderr by Execute itself, so callers should not double-print.
-func Execute() error {
-	root := newRootCmd()
+// to stderr by Execute itself, so callers should not double-print. The
+// version string is what `--version` prints; callers pass their own build-
+// tagged value or "dev" for unstamped builds.
+func Execute(version string) error {
+	root := newRootCmd(version)
 	if err := root.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "gomposer: %v\n", err)
 		return err

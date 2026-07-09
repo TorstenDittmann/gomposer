@@ -23,7 +23,7 @@ func TestAllowPluginsFlagAcceptedAsNoOp(t *testing.T) {
 		{"update", "--project", dir, "--allow-plugins=*"},
 	} {
 		var out bytes.Buffer
-		root := newRootCmd()
+		root := newRootCmd("dev")
 		root.SetOut(&out)
 		root.SetErr(&out)
 		root.SetArgs(args)
@@ -35,7 +35,7 @@ func TestAllowPluginsFlagAcceptedAsNoOp(t *testing.T) {
 
 func TestAllowPluginsHelpMentionsNoOp(t *testing.T) {
 	var out bytes.Buffer
-	root := newRootCmd()
+	root := newRootCmd("dev")
 	root.SetOut(&out)
 	root.SetErr(&out)
 	root.SetArgs([]string{"install", "--help"})

@@ -1,0 +1,85 @@
+# GoReleaser configuration.
+# https://goreleaser.com/customization/
+version: 2
+
+project_name: gomposer
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: gomposer
+    main: ./cmd/gomposer
+    binary: gomposer
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Strip DWARF + inject version metadata. `-trimpath` (via .Env in newer
+    # goreleaser) is not set here because -ldflags below already keeps
+    # build determinism enough for our use case; add `flags: [-trimpath]`
+    # later if we need reproducible builds byte-for-byte.
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .Date }}
+    flags:
+      - -trimpath
+
+archives:
+  - id: gomposer
+    ids:
+      - gomposer
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  # Auto-generate the release notes from commits. Filter out chore/docs
+  # noise so the notes stay focused on user-visible changes.
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^chore:"
+      - "^docs:"
+      - "^test:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: "^feat"
+      order: 0
+    - title: Fixes
+      regexp: "^fix"
+      order: 1
+    - title: Performance
+      regexp: "^perf"
+      order: 2
+    - title: Other
+      order: 999
+
+release:
+  github:
+    owner: TorstenDittmann
+    name: gomposer
+  # First release is v0.1.0 — mark pre-release until we ship Stage 4.
+  prerelease: auto
+  draft: false

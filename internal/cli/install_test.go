@@ -7,7 +7,7 @@ import (
 
 func TestInstallFailsWithoutManifest(t *testing.T) {
 	var stdout bytes.Buffer
-	root := newRootCmd()
+	root := newRootCmd("dev")
 	root.SetOut(&stdout)
 	root.SetErr(&stdout)
 	root.SetArgs([]string{"install", "--project", t.TempDir()})
@@ -19,7 +19,7 @@ func TestInstallFailsWithoutManifest(t *testing.T) {
 func TestInstallAcceptsIgnorePlatformReqRepeated(t *testing.T) {
 	// Reset flag state before the test to avoid cross-test contamination.
 	flagIgnorePlatformReqs = nil
-	root := newRootCmd()
+	root := newRootCmd("dev")
 	root.SetArgs([]string{"install",
 		"--project", t.TempDir(),
 		"--ignore-platform-req=php",
