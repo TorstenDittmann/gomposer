@@ -1,0 +1,7 @@
+{
+  "name": "acme/app",
+  "require": {"acme/lib": "dev-main"},
+  "repositories": [
+    {"type": "vcs", "url": "https://github.com/acme/lib.git"}
+  ]
+}

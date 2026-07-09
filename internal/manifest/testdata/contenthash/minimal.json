@@ -1,0 +1,7 @@
+{
+  "name": "acme/app",
+  "require": {
+    "php": ">=8.1",
+    "monolog/monolog": "^3.0"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "acme/tool",
+  "type": "library",
+  "description": "not in the relevant set",
+  "authors": [{"name": "someone"}]
+}

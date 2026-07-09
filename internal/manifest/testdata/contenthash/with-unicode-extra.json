@@ -1,0 +1,6 @@
+{
+  "name": "acme/app",
+  "extra": {
+    "note": "café ☕"
+  }
+}
