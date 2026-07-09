@@ -6,7 +6,7 @@
 
 ## Summary
 
-`gomposer` is a Go reimplementation of the install/update path of Composer (PHP's package manager), focused on raw speed. It reads existing `composer.json` files unchanged, resolves dependencies against Packagist and arbitrary git VCS repositories, generates Composer-compatible autoloaders, and runs install scripts. It writes its own lockfile (`gomposer.lock`) rather than `composer.lock`, and it intentionally does not implement Composer's plugin system.
+`gomposer` is a Go reimplementation of the install/update path of Composer (PHP's package manager), focused on raw speed. It reads existing `composer.json` files unchanged, resolves dependencies against Packagist and arbitrary git VCS repositories, generates Composer-compatible autoloaders, and runs install scripts. It reads and writes the standard `composer.lock`, and it intentionally does not implement Composer's plugin system.
 
 ## Goals
 
@@ -152,24 +152,9 @@ Four caching layers and two optimistic operations are baked in. Layers 1, 2, and
 
 ### Lockfile format
 
-JSON for diff-friendliness, with a sidecar binary cache for fast loads on warm runs.
-
-```
-{
-  "schemaVersion": 1,
-  "generator": { "name": "gomposer", "version": "..." },
-  "manifestContentHash": "sha256:...",
-  "platformFingerprint": "php-8.2.x;ext-mbstring;ext-json;...",
-  "stability": { "minimumStability": "stable", "preferStable": true },
-  "packages":    [ { name, version, source: { type, url, ref },
-                     dist:   { type, url, sha256 },
-                     require, autoload, suggest } ],
-  "packagesDev": [ ...same shape... ],
-  "aliases":     [ ... ]
-}
-```
-
-The `platformFingerprint` is captured at resolution time. If the user's PHP changes under us, the fingerprint mismatches and we force a re-resolve.
+gomposer reads and writes the standard Composer `composer.lock`. See
+`docs/superpowers/specs/2026-06-18-composer-lock-compat-design.md` for the
+schema mapping and content-hash algorithm.
 
 ### Resolver: PubGrub
 
@@ -202,7 +187,7 @@ gomposer/
 ├── internal/
 │   ├── cli/                 # cobra commands
 │   ├── manifest/            # composer.json parsing
-│   ├── lock/                # gomposer.lock read/write
+│   ├── lock/                # composer.lock read/write
 │   ├── constraint/          # PHP version constraint logic
 │   ├── resolver/            # PubGrub
 │   ├── registry/            # packagist + vcs metadata sources

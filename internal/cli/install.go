@@ -19,7 +19,7 @@ func newInstallCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install dependencies into vendor/ from composer.json (using gomposer.lock if present)",
+		Short: "Install dependencies into vendor/ from composer.json (using composer.lock if present)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectDir == "" {
 				wd, err := os.Getwd()

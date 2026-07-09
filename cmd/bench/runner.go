@@ -93,7 +93,7 @@ func median(d []time.Duration) time.Duration {
 func prepareScenario(s Scenario, dir string) error {
 	switch s {
 	case ScenarioCold:
-		for _, rel := range []string{"vendor", "composer.lock", "gomposer.lock"} {
+		for _, rel := range []string{"vendor", "composer.lock"} {
 			if err := os.RemoveAll(filepath.Join(dir, rel)); err != nil {
 				return fmt.Errorf("bench: prepare cold: rm %s: %w", rel, err)
 			}

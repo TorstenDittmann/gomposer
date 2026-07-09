@@ -54,7 +54,6 @@ func TestPrepareColdRemovesVendorAndLocks(t *testing.T) {
 	for _, p := range []string{
 		filepath.Join(dir, "vendor", "psr", "log"),
 		filepath.Join(dir, "composer.lock"),
-		filepath.Join(dir, "gomposer.lock"),
 	} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -66,7 +65,7 @@ func TestPrepareColdRemovesVendorAndLocks(t *testing.T) {
 	if err := prepareScenario(ScenarioCold, dir); err != nil {
 		t.Fatalf("prepareScenario: %v", err)
 	}
-	for _, p := range []string{"vendor", "composer.lock", "gomposer.lock"} {
+	for _, p := range []string{"vendor", "composer.lock"} {
 		if _, err := os.Stat(filepath.Join(dir, p)); !os.IsNotExist(err) {
 			t.Errorf("%s should be removed: %v", p, err)
 		}
@@ -78,7 +77,7 @@ func TestPrepareWarmRemovesOnlyVendor(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "composer.lock"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := prepareScenario(ScenarioWarm, dir); err != nil {
@@ -87,14 +86,14 @@ func TestPrepareWarmRemovesOnlyVendor(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "vendor")); !os.IsNotExist(err) {
 		t.Error("vendor should be removed")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
-		t.Error("gomposer.lock should be preserved on warm")
+	if _, err := os.Stat(filepath.Join(dir, "composer.lock")); err != nil {
+		t.Error("composer.lock should be preserved on warm")
 	}
 }
 
 func TestPrepareLockUnchangedTouchesNothing(t *testing.T) {
 	dir := t.TempDir()
-	for _, p := range []string{"vendor/keep", "gomposer.lock"} {
+	for _, p := range []string{"vendor/keep", "composer.lock"} {
 		full := filepath.Join(dir, p)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -106,7 +105,7 @@ func TestPrepareLockUnchangedTouchesNothing(t *testing.T) {
 	if err := prepareScenario(ScenarioLockUnchanged, dir); err != nil {
 		t.Fatalf("prepareScenario: %v", err)
 	}
-	for _, p := range []string{"vendor/keep", "gomposer.lock"} {
+	for _, p := range []string{"vendor/keep", "composer.lock"} {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 			t.Errorf("%s should be preserved on lock-unchanged: %v", p, err)
 		}

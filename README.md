@@ -41,8 +41,8 @@ Homebrew and a Windows build are not planned for now.
 Inside a project that has a `composer.json`:
 
 ```sh
-gomposer install          # install from composer.json, using gomposer.lock if present
-gomposer update           # re-resolve everything and rewrite gomposer.lock + vendor/
+gomposer install          # install from composer.json, using composer.lock if present
+gomposer update           # re-resolve everything and rewrite composer.lock + vendor/
 ```
 
 Common flags:
@@ -66,7 +66,7 @@ gomposer reads `composer.json` and produces the same `vendor/` layout Composer d
 
 What it does **not** do:
 
-- It does not read `composer.lock` — gomposer keeps its own `gomposer.lock` with a different schema. If both exist they are independent; you can run Composer alongside gomposer safely.
+- Reads and writes the standard `composer.lock`. gomposer emits a valid Composer-shape lockfile (`content-hash`, `stability-flags`, `platform`, `packages` with `source`/`dist`/`autoload`/`time`/`notification-url`); Composer can consume it directly. Optional per-package metadata Composer emits (authors, license, description, keywords) is not populated on our writes; Composer will fill it back in on its next run if you use both tools alternately.
 - It does not run Composer plugins. `--allow-plugins` is accepted for compatibility and is a no-op.
 - Stage 4 items (signed releases, Homebrew, `curl | sh`, migration guide) are pending.
 
@@ -101,7 +101,7 @@ go run ./cmd/bench \
 
 The harness reports the median of `--runs` runs per `(fixture, scenario, tool)`. Scenarios:
 
-- **cold** — `vendor/`, `composer.lock`, and `gomposer.lock` are all removed before each run.
+- **cold** — `vendor/` and `composer.lock` are removed before each run.
 - **warm** — lockfile and on-disk caches preserved; only `vendor/` is removed.
 - **lock-unchanged** — nothing is removed; the timed run starts fully populated.
 

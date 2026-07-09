@@ -19,7 +19,7 @@ func newUpdateCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Re-resolve all dependencies and rewrite gomposer.lock + vendor/",
+		Short: "Re-resolve all dependencies and rewrite composer.lock + vendor/",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectDir == "" {
 				wd, err := os.Getwd()

@@ -20,7 +20,7 @@ func newRootCmd(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gomposer",
 		Short:         "A fast Go-based PHP package manager",
-		Long:          "gomposer installs PHP packages described in composer.json. It is a compatible consumer of composer.json but writes its own gomposer.lock.",
+		Long:          "gomposer installs PHP packages described in composer.json. It reads and writes the standard composer.lock.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
