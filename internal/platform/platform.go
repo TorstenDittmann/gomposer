@@ -92,7 +92,10 @@ func (p *Platform) ExtensionVersion(name string) (constraint.Version, bool) {
 // --- process-level cache ---
 
 var (
-	probeOnce   sync.Once
+	// probeOnce is a pointer so tests can swap the Once atomically without
+	// copying (sync.Once must not be copied after first use; vet flags any
+	// value-level assignment).
+	probeOnce   = &sync.Once{}
 	probeResult *Platform
 	probeErr    error
 )
@@ -109,7 +112,7 @@ func Probe() (*Platform, error) {
 // resetProbeCacheForTests is exposed for testing. It is a no-op outside
 // tests; production callers MUST NOT call this.
 func resetProbeCacheForTests() {
-	probeOnce = sync.Once{}
+	probeOnce = &sync.Once{}
 	probeResult = nil
 	probeErr = nil
 }
@@ -141,7 +144,7 @@ func SetTestPlatform(t interface{ Cleanup(func()) }, phpVersion string) {
 	savedOnce := probeOnce
 	savedResult := probeResult
 	savedErr := probeErr
-	probeOnce = sync.Once{}
+	probeOnce = &sync.Once{}
 	probeResult = &Platform{
 		PHPVersion: v,
 		Extensions: map[string]constraint.Version{"json": {}, "mbstring": {}},
