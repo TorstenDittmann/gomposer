@@ -64,40 +64,61 @@ func TestWriteExpected(t *testing.T) {
 	if os.Getenv("WRITE_EXPECTED") != "1" {
 		t.Skip("set WRITE_EXPECTED=1 to regenerate")
 	}
-	dir := filepath.Join("testdata", "fixture-project")
-	abs, _ := filepath.Abs(dir)
-	if err := Generate(Options{
-		ProjectDir:   abs,
-		Entries:      fixtureEntries(),
-		RootAutoload: fixtureRoot(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{
-		"autoload.php",
-		"autoload_real.php",
-		"autoload_psr4.php",
-		"autoload_namespaces.php",
-		"autoload_classmap.php",
-		"autoload_files.php",
-		"autoload_static.php",
-		"installed.php",
-	} {
-		var src string
-		if name == "autoload.php" {
-			src = filepath.Join(abs, "vendor", name)
-		} else {
-			src = filepath.Join(abs, "vendor", "composer", name)
-		}
-		body, err := os.ReadFile(src)
-		if err != nil {
-			t.Fatal(err)
-		}
+	// Use fixedProjectDir as the hash input so the emitted
+	// ComposerAutoloaderInit<hash> class name is portable across machines.
+	// Classmap scanning still needs the real filesystem path.
+	fixtureAbs, _ := filepath.Abs(filepath.Join("testdata", "fixture-project"))
+	out := renderFixtureBytes(t, fixtureAbs)
+	for name, body := range out {
 		dest := filepath.Join("testdata", "expected", name)
 		if err := os.WriteFile(dest, body, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
+}
+
+// renderFixtureBytes returns the byte-level output of every autoloader file
+// for the fixture-project, keyed by expected-fixture filename. Uses
+// fixedProjectDir for the hash so results are portable across machines.
+func renderFixtureBytes(t *testing.T, fixtureAbs string) map[string][]byte {
+	t.Helper()
+	psr4 := CollectPSR4(fixtureAbs, fixtureRoot(), fixtureEntries())
+	sorted := SortedPrefixes(psr4)
+	classmap, err := CollectClassmap(fixtureAbs, fixtureRoot(), fixtureEntries())
+	if err != nil {
+		t.Fatalf("CollectClassmap: %v", err)
+	}
+	files := CollectFiles(fixtureRoot(), fixtureEntries())
+	out, err := renderAll(renderData{
+		InitClass:       InitClassName(fixedProjectDir),
+		Hash:            InitHash(fixedProjectDir),
+		PSR4:            psr4,
+		SortedPSR4:      sorted,
+		PSR4ByFirstChar: buildFirstCharGroups(sorted),
+		Files:           files,
+		Classmap:        classmap,
+		SortedClasses:   SortedClassmapKeys(classmap),
+	})
+	if err != nil {
+		t.Fatalf("renderAll: %v", err)
+	}
+	// Renderer keys are vendor/-relative paths; the expected-fixture
+	// filenames are the basenames.
+	mapping := map[string]string{
+		"vendor/autoload.php":                     "autoload.php",
+		"vendor/composer/autoload_real.php":       "autoload_real.php",
+		"vendor/composer/autoload_psr4.php":       "autoload_psr4.php",
+		"vendor/composer/autoload_namespaces.php": "autoload_namespaces.php",
+		"vendor/composer/autoload_classmap.php":   "autoload_classmap.php",
+		"vendor/composer/autoload_files.php":      "autoload_files.php",
+		"vendor/composer/autoload_static.php":     "autoload_static.php",
+		"vendor/composer/installed.php":           "installed.php",
+	}
+	byBasename := make(map[string][]byte, len(mapping))
+	for gen, base := range mapping {
+		byBasename[base] = out[gen]
+	}
+	return byBasename
 }
 
 func TestSnapshot(t *testing.T) {
@@ -135,8 +156,8 @@ func TestSnapshot(t *testing.T) {
 	}
 	files := CollectFiles(fixtureRoot(), fixtureEntries())
 	out, err := renderAll(renderData{
-		InitClass:       InitClassName(fixtureAbs),
-		Hash:            InitHash(fixtureAbs),
+		InitClass:       InitClassName(fixedProjectDir),
+		Hash:            InitHash(fixedProjectDir),
 		PSR4:            psr4,
 		SortedPSR4:      sorted,
 		PSR4ByFirstChar: buildFirstCharGroups(sorted),
