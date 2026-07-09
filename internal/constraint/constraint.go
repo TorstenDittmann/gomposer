@@ -301,20 +301,32 @@ func singleOp(op Op, s string) ([]term, error) {
 
 // caretTerms expands "^X.Y.Z" to ">=X.Y.Z" AND "<NEXT.0.0" where NEXT = X+1
 // for X>0; for X==0, the upper bound becomes "<0.(Y+1).0".
+//
+// Both bounds carry Dev stability so pre-release versions of the boundary
+// tags compare correctly: `2.0.0-RC1` satisfies `>=2.0.0` (since RC > Dev
+// at the boundary), and `3.0.0-RC1` fails `<3.0.0` (since RC > Dev at the
+// upper). This mirrors Composer's internal `VersionParser::normalize`,
+// which treats `^X.Y.Z` as `>=X.Y.Z.0-dev, <NEXT.0.0.0-dev`. Without dev
+// bounds, per-require stability flags like `@RC` would either miss valid
+// candidates (lower) or over-admit next-major pre-releases (upper).
 func caretTerms(s string) ([]term, error) {
 	v, err := ParseVersion(s)
 	if err != nil {
 		return nil, err
 	}
+	// The lower bound reads as ">=X.Y.Z at dev-stability boundary" — any
+	// stability of X.Y.Z or higher satisfies it.
+	lower := v
+	lower.Stability = Dev
 	upper := nextCaretUpper(v)
-	return []term{{OpGe, v}, {OpLt, upper}}, nil
+	return []term{{OpGe, lower}, {OpLt, upper}}, nil
 }
 
 func nextCaretUpper(v Version) Version {
 	if v.Major > 0 {
-		return Version{Major: v.Major + 1, Stability: Stable}
+		return Version{Major: v.Major + 1, Stability: Dev}
 	}
-	return Version{Major: 0, Minor: v.Minor + 1, Stability: Stable}
+	return Version{Major: 0, Minor: v.Minor + 1, Stability: Dev}
 }
 
 // IsExplicitDev reports whether the constraint is a single literal
@@ -343,6 +355,22 @@ func (c Constraint) IsExplicitDev() bool {
 	return body != ""
 }
 
+// StabilityFlag returns the "@<stability>" suffix parsed off the constraint,
+// e.g. `^2.0@RC` → "RC". Returns "" when no flag was present. When multiple
+// terms carry a flag (rare — typically only the first version literal does),
+// the first non-empty one wins. This is what the resolver consults to
+// override the global minimum-stability for a single require.
+func (c Constraint) StabilityFlag() string {
+	for _, cl := range c.clauses {
+		for _, t := range cl {
+			if t.v.StabilityFlag != "" {
+				return t.v.StabilityFlag
+			}
+		}
+	}
+	return ""
+}
+
 // ExplicitDevBranch returns the branch name when IsExplicitDev is true,
 // stripped of any "#sha" pin. Returns "" otherwise.
 func (c Constraint) ExplicitDevBranch() string {
@@ -357,14 +385,17 @@ func (c Constraint) ExplicitDevBranch() string {
 }
 
 // tildeTerms expands "~X.Y.Z" to ">=X.Y.Z, <X.(Y+1).0" and
-// "~X.Y" to ">=X.Y.0, <(X+1).0.0".
+// "~X.Y" to ">=X.Y.0, <(X+1).0.0". Bounds use Dev stability for the same
+// reason as caretTerms — see that function's doc.
 func tildeTerms(s string) ([]term, error) {
 	v, err := ParseVersion(s)
 	if err != nil {
 		return nil, err
 	}
+	lower := v
+	lower.Stability = Dev
 	upper := nextTildeUpper(s, v)
-	return []term{{OpGe, v}, {OpLt, upper}}, nil
+	return []term{{OpGe, lower}, {OpLt, upper}}, nil
 }
 
 func nextTildeUpper(s string, v Version) Version {
@@ -374,9 +405,9 @@ func nextTildeUpper(s string, v Version) Version {
 	}
 	dots := strings.Count(base, ".")
 	if dots >= 2 {
-		return Version{Major: v.Major, Minor: v.Minor + 1, Stability: Stable}
+		return Version{Major: v.Major, Minor: v.Minor + 1, Stability: Dev}
 	}
-	return Version{Major: v.Major + 1, Stability: Stable}
+	return Version{Major: v.Major + 1, Stability: Dev}
 }
 
 // isWildcardTerm reports whether f looks like a Composer wildcard constraint

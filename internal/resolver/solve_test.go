@@ -161,6 +161,78 @@ func TestSolveDevRequiresExcluded(t *testing.T) {
 	}
 }
 
+// TestSolveAdmitsPerRequireStabilityFlag mirrors a real Appwrite manifest
+// entry: "utopia-php/http": "^2.0@RC". The package only ships RC-stability
+// tags; the manifest's minimum-stability is stable. Composer honors the
+// per-require @RC as an override for that one package. Our resolver must
+// too — the RC version has to be selected without loosening minStab
+// globally.
+func TestSolveAdmitsPerRequireStabilityFlag(t *testing.T) {
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"utopia-php/http": {
+			testlookup.Pkg("utopia-php/http", "2.0.0-RC1", nil),
+		},
+	})
+	m := &manifest.Manifest{
+		Name:             "user/app",
+		Require:          map[string]string{"utopia-php/http": "^2.0@RC"},
+		MinimumStability: "stable",
+	}
+	res, err := Solve(context.Background(), Input{Manifest: m, Source: src})
+	if err != nil {
+		t.Fatalf("Solve: %v", err)
+	}
+	if len(res.Packages) != 1 {
+		t.Fatalf("Packages = %d, want 1", len(res.Packages))
+	}
+	if res.Packages[0].Record.Version != "2.0.0-RC1" {
+		t.Errorf("picked %q, want 2.0.0-RC1", res.Packages[0].Record.Version)
+	}
+}
+
+// TestSolvePerRequireStabilityDoesNotLeakToOtherPackages guards the scoping
+// rule: @RC on one require must NOT admit RC candidates for every other
+// package. A stable package with an RC candidate available should still get
+// the stable one.
+func TestSolvePerRequireStabilityDoesNotLeakToOtherPackages(t *testing.T) {
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"utopia-php/http": {
+			testlookup.Pkg("utopia-php/http", "2.0.0-RC1", nil),
+		},
+		"acme/lib": {
+			testlookup.Pkg("acme/lib", "2.0.0-RC1", nil),
+			testlookup.Pkg("acme/lib", "1.9.0", nil),
+		},
+	})
+	m := &manifest.Manifest{
+		Name: "user/app",
+		Require: map[string]string{
+			"utopia-php/http": "^2.0@RC",
+			"acme/lib":        "^1.0",
+		},
+		MinimumStability: "stable",
+	}
+	res, err := Solve(context.Background(), Input{Manifest: m, Source: src})
+	if err != nil {
+		t.Fatalf("Solve: %v", err)
+	}
+	var httpVer, libVer string
+	for _, p := range res.Packages {
+		switch p.Name {
+		case "utopia-php/http":
+			httpVer = p.Record.Version
+		case "acme/lib":
+			libVer = p.Record.Version
+		}
+	}
+	if httpVer != "2.0.0-RC1" {
+		t.Errorf("utopia-php/http = %q, want 2.0.0-RC1", httpVer)
+	}
+	if libVer != "1.9.0" {
+		t.Errorf("acme/lib = %q, want 1.9.0 (RC must not leak to unflagged require)", libVer)
+	}
+}
+
 func TestSolveConflictMessageReadsAsDerivation(t *testing.T) {
 	src := testlookup.New(map[string][]registry.PackageVersion{
 		"a/x": {testlookup.Pkg("a/x", "1.0.0", map[string]string{"b/y": "^1.0"})},

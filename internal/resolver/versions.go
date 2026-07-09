@@ -21,11 +21,12 @@ type listedVersion struct {
 // versionLister wraps a SourceLookup with parse+sort+filter+cache. One
 // instance is created per Solve() call.
 type versionLister struct {
-	src      registry.SourceLookup
-	minStab  constraint.Stability
-	cache    map[string][]listedVersion
-	notFound map[string]bool
-	allowDev map[string]map[string]bool // pkg -> branch set
+	src       registry.SourceLookup
+	minStab   constraint.Stability
+	cache     map[string][]listedVersion
+	notFound  map[string]bool
+	allowDev  map[string]map[string]bool     // pkg -> branch set
+	allowStab map[string]constraint.Stability // pkg -> per-package minimum stability floor
 
 	platform           *platform.Platform
 	ignorePlatformReqs map[string]bool
@@ -34,11 +35,12 @@ type versionLister struct {
 
 func newVersionLister(src registry.SourceLookup, minStability string) *versionLister {
 	return &versionLister{
-		src:      src,
-		minStab:  parseStabilityName(minStability),
-		cache:    map[string][]listedVersion{},
-		notFound: map[string]bool{},
-		allowDev: map[string]map[string]bool{},
+		src:       src,
+		minStab:   parseStabilityName(minStability),
+		cache:     map[string][]listedVersion{},
+		notFound:  map[string]bool{},
+		allowDev:  map[string]map[string]bool{},
+		allowStab: map[string]constraint.Stability{},
 	}
 }
 
@@ -56,6 +58,27 @@ func (vl *versionLister) AllowDevBranch(pkg, branch string) {
 
 func (vl *versionLister) devAdmitted(pkg, branch string) bool {
 	return vl.allowDev[pkg][branch]
+}
+
+// AllowStabilityAtLeast lowers the stability floor for pkg alone, honoring
+// Composer's per-require stability flags (e.g. `^2.0@RC`). Multiple calls
+// keep the loosest admission — the lowest stability wins, since Composer
+// treats a per-require flag as "at least this stability is OK for THIS
+// package". No effect if stab is stricter than the global minStab.
+func (vl *versionLister) AllowStabilityAtLeast(pkg string, stab constraint.Stability) {
+	if existing, ok := vl.allowStab[pkg]; ok && existing <= stab {
+		return
+	}
+	vl.allowStab[pkg] = stab
+}
+
+// stabilityFloor returns the effective minimum stability for pkg. When a
+// per-package override is registered we take the looser (lower) of the two.
+func (vl *versionLister) stabilityFloor(pkg string) constraint.Stability {
+	if s, ok := vl.allowStab[pkg]; ok && s < vl.minStab {
+		return s
+	}
+	return vl.minStab
 }
 
 func parseStabilityName(s string) constraint.Stability {
@@ -119,7 +142,7 @@ func (vl *versionLister) versions(ctx context.Context, pkg string) ([]listedVers
 			// Skip unparseable; do not block the entire package on one bad row.
 			continue
 		}
-		if parsed.Stability < vl.minStab {
+		if parsed.Stability < vl.stabilityFloor(pkg) {
 			if !(parsed.Stability == constraint.Dev && vl.devAdmitted(pkg, parsed.Branch)) {
 				continue
 			}

@@ -70,8 +70,9 @@ func Solve(ctx context.Context, in Input) (*Result, error) {
 	vl.strictPlatform = in.StrictPlatform
 
 	// Stability flags: explicit "dev-<branch>" requires admit that branch
-	// regardless of minStab (Composer-compatible behaviour).
-	registerExplicitDev := func(reqs map[string]string) {
+	// regardless of minStab. A per-require suffix (e.g. `^2.0@RC`) lowers
+	// the stability floor for that one package. Both are Composer-compatible.
+	registerFlags := func(reqs map[string]string) {
 		for pkg, raw := range reqs {
 			c, err := constraint.Parse(raw)
 			if err != nil {
@@ -80,11 +81,14 @@ func Solve(ctx context.Context, in Input) (*Result, error) {
 			if branch := c.ExplicitDevBranch(); branch != "" {
 				vl.AllowDevBranch(pkg, branch)
 			}
+			if flag := c.StabilityFlag(); flag != "" {
+				vl.AllowStabilityAtLeast(pkg, parseStabilityName(flag))
+			}
 		}
 	}
-	registerExplicitDev(in.Manifest.Require)
+	registerFlags(in.Manifest.Require)
 	if in.IncludeDev {
-		registerExplicitDev(in.Manifest.RequireDev)
+		registerFlags(in.Manifest.RequireDev)
 	}
 
 	// 1. Seed root incompatibilities.

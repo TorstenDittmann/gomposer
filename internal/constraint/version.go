@@ -197,14 +197,20 @@ func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 // Major/Minor/Patch and compare numerically against each other but still
 // below stable versions with the same numbers.
 func (v Version) Compare(other Version) int {
-	// Two "pure" dev versions (no major/minor/patch numbers): alphabetical.
-	if v.Stability == Dev && other.Stability == Dev && v.Major == 0 && other.Major == 0 {
+	// Pure dev branches (like `dev-main`) have Branch set and no numeric
+	// component; they sort below every numeric version and among each other
+	// alphabetically. We discriminate by Branch, not by Major==0, because
+	// caret/tilde upper bounds like `<0.4.0-dev` are numeric-with-Dev-
+	// stability — they must NOT trigger this special case.
+	vPureDev := v.Stability == Dev && v.Branch != ""
+	oPureDev := other.Stability == Dev && other.Branch != ""
+	if vPureDev && oPureDev {
 		return strings.Compare(v.Branch, other.Branch)
 	}
-	if v.Stability == Dev && v.Major == 0 {
+	if vPureDev {
 		return -1
 	}
-	if other.Stability == Dev && other.Major == 0 {
+	if oPureDev {
 		return 1
 	}
 	if c := cmpInt(v.Major, other.Major); c != 0 {

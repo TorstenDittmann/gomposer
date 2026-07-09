@@ -92,7 +92,10 @@ var realWorldCorpus = []realWorldEntry{
 
 	// --- Pre-release variants ---
 	{"prerelease-rc", "1.0.0-RC1", "1.0.0-RC1", true},
-	{"prerelease-beta", "^1.0@beta", "1.0.0-beta1", false}, // numeric major bound
+	// Per-require @beta admits pre-release stability at the numeric boundary:
+	// Composer normalizes `^1.0@beta` to `>=1.0.0-dev <2.0.0-dev`, so
+	// 1.0.0-beta1 satisfies it.
+	{"prerelease-beta", "^1.0@beta", "1.0.0-beta1", true},
 	{"prerelease-alpha", "1.2.3-alpha", "1.2.3-alpha", true},
 
 	// --- Leading v tolerance ---
