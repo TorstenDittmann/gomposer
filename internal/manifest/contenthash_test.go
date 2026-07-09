@@ -50,6 +50,66 @@ func TestContentHashMatchesFixtures(t *testing.T) {
 	}
 }
 
+// TestContentHashSkipsNullConfigPlatform verifies isset() semantics: PHP's
+// isset($content['config']['platform']) is false when the value is JSON
+// null, so Composer treats {"config":{"platform":null}} the same as no
+// config key at all. The expected hash is that of {"name":"a\/b"} — verified
+// against real Composer 2.10.1 (`composer update --no-install` against a
+// throwaway project using this fixture as composer.json).
+func TestContentHashSkipsNullConfigPlatform(t *testing.T) {
+	withNull := []byte(`{"name":"a/b","config":{"platform":null}}`)
+	baseline := []byte(`{"name":"a/b"}`)
+
+	got, err := ContentHash(withNull)
+	if err != nil {
+		t.Fatalf("ContentHash(withNull): %v", err)
+	}
+	want, err := ContentHash(baseline)
+	if err != nil {
+		t.Fatalf("ContentHash(baseline): %v", err)
+	}
+	if got != want {
+		t.Errorf("ContentHash(%s) = %q, want %q (same as %s)", withNull, got, want, baseline)
+	}
+}
+
+// TestContentHashNormalizesNumbers verifies that number literals are
+// normalized the way PHP's json_encode(json_decode($x)) does: "1.50" and
+// "1e2" must produce the same content-hash as their canonical forms "1.5"
+// and "100".
+func TestContentHashNormalizesNumbers(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b []byte
+	}{
+		{
+			name: "trailing zero",
+			a:    []byte(`{"name":"a/b","extra":{"x":1.50}}`),
+			b:    []byte(`{"name":"a/b","extra":{"x":1.5}}`),
+		},
+		{
+			name: "exponent",
+			a:    []byte(`{"name":"a/b","extra":{"x":1e2}}`),
+			b:    []byte(`{"name":"a/b","extra":{"x":100}}`),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ContentHash(tc.a)
+			if err != nil {
+				t.Fatalf("ContentHash(a): %v", err)
+			}
+			want, err := ContentHash(tc.b)
+			if err != nil {
+				t.Fatalf("ContentHash(b): %v", err)
+			}
+			if got != want {
+				t.Errorf("ContentHash(%s) = %q, want %q (same as %s)", tc.a, got, want, tc.b)
+			}
+		})
+	}
+}
+
 // TestPhpCompatibleJSONEscapesSlashes verifies the slash-escape transform
 // on a value containing a URL. PHP's json_encode escapes / as \/ by
 // default; Go's json.Marshal never does.

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -124,7 +125,7 @@ func marshalOrderedValue(v any) ([]byte, error) {
 	case string:
 		return []byte(jsonEscapeString(val)), nil
 	case json.Number:
-		return []byte(val), nil
+		return marshalJSONNumber(val)
 	case bool:
 		if val {
 			return []byte("true"), nil
@@ -135,6 +136,28 @@ func marshalOrderedValue(v any) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("manifest: content-hash: unsupported value type %T", v)
 	}
+}
+
+// marshalJSONNumber re-encodes a json.Number the way PHP's
+// json_encode(json_decode($x)) normalizes numeric literals: "1.50" becomes
+// "1.5", "1e2" becomes "100". json.Number preserves the exact source text,
+// which would otherwise leak non-canonical formatting straight into the
+// content-hash. Integers that fit in int64 are round-tripped via
+// strconv.FormatInt to avoid float64 precision loss; everything else goes
+// through float64, whose Go json.Marshal formatting matches PHP's shortest
+// round-trip float representation.
+func marshalJSONNumber(val json.Number) ([]byte, error) {
+	s := string(val)
+	if !strings.ContainsAny(s, ".eE") {
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return []byte(strconv.FormatInt(i, 10)), nil
+		}
+	}
+	f, err := val.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("manifest: content-hash: parse number %q: %w", s, err)
+	}
+	return json.Marshal(f)
 }
 
 // jsonEscapeString applies plain JSON string escaping (quotes, backslash,
@@ -252,7 +275,7 @@ func ContentHash(manifestBytes []byte) (string, error) {
 	// Composer also carries config.platform when present.
 	if cfgVal, ok := root.get("config"); ok {
 		if cfg, ok := cfgVal.(*orderedObject); ok {
-			if plat, ok := cfg.get("platform"); ok {
+			if plat, ok := cfg.get("platform"); ok && plat != nil {
 				filtered.set("config", &orderedObject{keys: []string{"platform"}, vals: []any{plat}})
 			}
 		}
