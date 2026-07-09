@@ -21,6 +21,14 @@ type Counters struct {
 	PackagesFetched  int
 	CacheHits        int   // package fetches served from the content store
 	BytesDownloaded  int64 // bytes pulled over the network this run
+
+	// MetadataWarmed and MetadataPrefetchDuration describe the background
+	// metadata-prefetch pool (see metadata_prefetch.go). Unlike the other
+	// phases, prefetch runs concurrently with "resolve" rather than being a
+	// nested span of it, so it has no natural Begin/End pair of its own —
+	// Render prints it as an extra line directly under "resolve" instead.
+	MetadataWarmed           int
+	MetadataPrefetchDuration time.Duration
 }
 
 // Timings records phase durations and run-wide counters for verbose output.
@@ -115,6 +123,20 @@ func (t *Timings) SetPackagesResolved(n int) {
 	t.mu.Unlock()
 }
 
+// SetMetadataPrefetch records the outcome of the background metadata-prefetch
+// pool (see maybeStartMetadataPrefetch). warmed is the number of packages
+// whose registry metadata was successfully warmed; dur is the pool's total
+// wall-clock duration. Called once, after mprefetch.Wait() returns.
+func (t *Timings) SetMetadataPrefetch(warmed int, dur time.Duration) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.counters.MetadataWarmed = warmed
+	t.counters.MetadataPrefetchDuration = dur
+	t.mu.Unlock()
+}
+
 // AddFetch is the fetcher callback. fromCache=true means a warm store hit
 // (no network); fromCache=false means we downloaded `bytes` bytes.
 func (t *Timings) AddFetch(_ string, bytes int, fromCache bool) {
@@ -177,6 +199,11 @@ func (t *Timings) Render(w io.Writer) {
 			fmt.Fprintf(w, "  %-16s %5d ms\n", p.Name, p.Elapsed.Milliseconds())
 		} else {
 			fmt.Fprintf(w, "  %-16s %5d ms %s\n", p.Name, p.Elapsed.Milliseconds(), annot)
+		}
+		// metadata-prefetch runs concurrently with "resolve", not as a phase
+		// of its own, so print it as an indented line directly beneath.
+		if p.Name == "resolve" && c.MetadataWarmed > 0 {
+			fmt.Fprintf(w, "    metadata-prefetch %5d ms (%d warmed)\n", c.MetadataPrefetchDuration.Milliseconds(), c.MetadataWarmed)
 		}
 	}
 	var total time.Duration

@@ -369,6 +369,21 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		return err
 	}
 
+	// mprefetch warms resolver-metadata caches in the background while the
+	// resolver runs. defer'd unconditionally so every early return below
+	// (including the resolve error path) still drains the pool. On a noop
+	// instance (disabled, or nothing to warm) Wait returns immediately. Stats
+	// are recorded into Timings from the same deferred call so the verbose
+	// breakdown reflects the prefetch outcome even when the pipeline returns
+	// early with an error.
+	mprefetch := maybeStartMetadataPrefetch(ctx, ps, opts)
+	defer func() {
+		mprefetch.Wait()
+		if warmed, dur := mprefetch.Stats(); warmed > 0 {
+			t.SetMetadataPrefetch(warmed, dur)
+		}
+	}()
+
 	prefetch := maybeStartPrefetch(ctx, ps, opts, forceResolve)
 
 	t.Begin("resolve")

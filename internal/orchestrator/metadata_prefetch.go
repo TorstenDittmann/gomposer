@@ -37,6 +37,18 @@ func (p *MetadataPrefetcher) Wait() {
 	p.wg.Wait()
 }
 
+// Stats returns the number of packages successfully warmed and the pool's
+// total wall-clock duration. Call only after Wait() has returned; on a noop
+// instance (or one that never dispatched any work) it reports (0, 0).
+func (p *MetadataPrefetcher) Stats() (warmed int, dur time.Duration) {
+	if p == nil {
+		return 0, 0
+	}
+	p.stats.mu.Lock()
+	defer p.stats.mu.Unlock()
+	return p.stats.warmed, p.stats.duration
+}
+
 // newNoopMetadataPrefetcher returns a zero-value MetadataPrefetcher whose
 // Wait returns immediately. Used when metadata prefetch is disabled or
 // there is nothing to warm.
