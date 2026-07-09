@@ -30,6 +30,9 @@ type PackageVersion struct {
 	// Type is the package type ("library", "composer-plugin", etc.).
 	// composer-plugin packages must be detected and skipped by the orchestrator.
 	Type string
+	// SourceKind identifies which registry produced this version ("packagist"
+	// or "vcs"). Used by the resolver adapter to decide notification-url.
+	SourceKind string
 }
 
 type Source struct {

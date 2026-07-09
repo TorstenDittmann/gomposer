@@ -165,27 +165,13 @@ func resolveOrCache(ctx context.Context, ps *pipelineState, forceResolve bool) (
 		return nil, fmt.Errorf("orchestrator: resolve: %w", err)
 	}
 
-	f := buildLockFile(ps, res)
+	f, err := resolver.BuildLock(res, ps.manifest, ps.manifestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("orchestrator: build lock: %w", err)
+	}
 	// Best-effort cache write. Resolution proceeds even if the cache write fails.
 	_ = storeResolution(ps.cacheKey, f)
 	return f, nil
-}
-
-func buildLockFile(ps *pipelineState, res *resolver.Result) *lock.File {
-	manifestHash := sha256.Sum256(ps.manifestBytes)
-	prod, dev := resolver.ToLockPackages(res)
-	return &lock.File{
-		SchemaVersion:       lock.SchemaVersion,
-		Generator:           lock.Generator{Name: "gomposer", Version: "0.1.0"},
-		ManifestContentHash: "sha256:" + hex.EncodeToString(manifestHash[:]),
-		PlatformFingerprint: ps.platformStr,
-		Stability: lock.Stability{
-			MinimumStability: ps.manifest.MinimumStability,
-			PreferStable:     ps.manifest.PreferStable,
-		},
-		Packages:    prod,
-		PackagesDev: dev,
-	}
 }
 
 // resolveOnly is a test seam: run only the manifest + resolve phases.

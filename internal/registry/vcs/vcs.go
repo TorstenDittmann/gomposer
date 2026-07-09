@@ -254,6 +254,7 @@ func (c *Client) Lookup(ctx context.Context, name string) (*registry.PackageMeta
 			Autoload:    rm.Autoload,
 			AutoloadDev: rm.AutoloadDev,
 			Suggest:     rm.Suggest,
+			SourceKind:  "vcs",
 		}
 		out.Versions = append(out.Versions, base)
 		// Branch aliases — synthesize aliased rows for each "dev-<branch> as

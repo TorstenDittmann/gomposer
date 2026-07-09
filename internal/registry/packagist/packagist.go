@@ -258,6 +258,7 @@ func decodeV2(name string, body []byte) (*registry.PackageMetadata, error) {
 			Autoload:    registry.Autoload(v.Autoload),
 			AutoloadDev: registry.Autoload(v.AutoloadDev),
 			Suggest:     map[string]string(v.Suggest),
+			SourceKind:  "packagist",
 		})
 	}
 	return out, nil
