@@ -19,6 +19,7 @@ type PackageVersion struct {
 	Name        string
 	Version     string            // raw version string as published, e.g. "3.5.0" or "dev-main"
 	VersionNorm string            // normalized form, used for stable comparison
+	Time        string            // RFC3339 timestamp from Packagist v2 "time" field.
 	Source      Source            // git source ref
 	Dist        Dist              // download artifact (zip)
 	Require     map[string]string // production deps (raw constraint strings)

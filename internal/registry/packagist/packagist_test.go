@@ -193,3 +193,37 @@ func TestPackagistAttachesAuth(t *testing.T) {
 		t.Errorf("Authorization = %q, want Bearer TOK", sawAuth)
 	}
 }
+
+func TestLookupCarriesPublishedTime(t *testing.T) {
+	body := `{"packages":{"acme/pkg":[
+		{"name":"acme/pkg","version":"1.0.0","version_normalized":"1.0.0.0",
+		 "type":"library","time":"2026-05-01T00:00:00+00:00",
+		 "source":{"type":"git","url":"https://example.invalid/x.git","reference":"deadbeef"},
+		 "dist":{"type":"zip","url":"https://example.invalid/x.zip","shasum":"abc"},
+		 "require":{}}
+	]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "~dev.json") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, CacheDir: t.TempDir(), HTTPClient: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, err := c.Lookup(context.Background(), "acme/pkg")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if len(md.Versions) != 1 {
+		t.Fatalf("Versions = %d", len(md.Versions))
+	}
+	if md.Versions[0].Time != "2026-05-01T00:00:00+00:00" {
+		t.Errorf("Time = %q", md.Versions[0].Time)
+	}
+}

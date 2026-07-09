@@ -39,7 +39,7 @@ func New(cfg Config) (*Client, error) {
 		return nil, errors.New("packagist: CacheDir is required")
 	}
 	httpDir := filepath.Join(cfg.CacheDir, "http")
-	parsedDir := filepath.Join(cfg.CacheDir, "parsed")
+	parsedDir := filepath.Join(cfg.CacheDir, "parsed-v2")
 	hc, err := httpcache.New(httpDir, cfg.HTTPClient)
 	if err != nil {
 		return nil, err
@@ -132,6 +132,7 @@ type v2Version struct {
 	Name              string       `json:"name"`
 	Version           string       `json:"version"`
 	VersionNormalized string       `json:"version_normalized"`
+	Time              string       `json:"time"`
 	Type              string       `json:"type"`
 	Source            v2Source     `json:"source"`
 	Dist              v2Dist       `json:"dist"`
@@ -248,6 +249,7 @@ func decodeV2(name string, body []byte) (*registry.PackageMetadata, error) {
 			Name:        v.Name,
 			Version:     v.Version,
 			VersionNorm: v.VersionNormalized,
+			Time:        v.Time,
 			Type:        v.Type,
 			Source:      registry.Source{Type: v.Source.Type, URL: v.Source.URL, Ref: v.Source.Reference},
 			Dist:        registry.Dist{Type: v.Dist.Type, URL: v.Dist.URL, Sha: v.Dist.Shasum},
