@@ -56,6 +56,7 @@ Common flags:
 | `--ignore-platform-req=<name>` | Skip a specific platform requirement (repeatable). |
 | `--no-scripts` | Do not execute user-defined scripts. |
 | `--no-prefetch` | Disable lock-driven speculative prefetch (benchmarking hook). |
+| `--no-metadata-prefetch` | Disable registry-metadata prefetch (benchmarking hook). |
 | `--project <dir>` | Point at a project directory other than the current one. |
 
 Run `gomposer install --help` for the full list.
