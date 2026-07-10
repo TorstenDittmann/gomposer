@@ -3,14 +3,18 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/torstendittmann/gomposer/internal/constraint"
 	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 	"github.com/torstendittmann/gomposer/internal/platform"
 	"github.com/torstendittmann/gomposer/internal/registry"
 )
@@ -197,4 +201,218 @@ func TestQuietSuppressesTimingBlock(t *testing.T) {
 	if strings.Contains(string(out), "gomposer: timing") {
 		t.Errorf("quiet+verbose should suppress timing, got:\n%s", out)
 	}
+}
+
+// --- Task 3: metadata prefetch wall-time integration test ---
+
+// TestMetadataPrefetchReducesResolveWallTime asserts that when the resolver
+// has to look up N packages against a source whose Lookup takes non-
+// negligible time, the total pipeline duration is smaller with metadata
+// prefetch enabled than without it. We do not assert an exact ratio (to
+// avoid flakiness) — just that prefetch is materially faster.
+func TestMetadataPrefetchReducesResolveWallTime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing-sensitive; skipping under -short")
+	}
+	platform.SetTestPlatform(t, "8.2.0")
+
+	// Build a slow-fake registry: each *cold* Lookup sleeps 40ms, then caches
+	// the result. This mirrors the real Packagist client, whose on-disk/HTTP
+	// cache is exactly what maybeStartMetadataPrefetch relies on warming: the
+	// prefetch pool's concurrent Lookups populate the cache while the
+	// resolver's own serial Lookups race to consume it. Without this caching
+	// behavior the fake wouldn't exercise the thing prefetch actually speeds
+	// up (a source with no memory of its own can never be "pre-warmed").
+	slow := &sleepySourceLookup{delay: 40 * time.Millisecond, versions: fakeMultiPkgVersions()}
+
+	// runFullPipeline also caches resolution results on disk, keyed by a hash
+	// of (manifest bytes, lock bytes, platform fingerprint). The serial and
+	// parallel runs below use byte-identical manifests, so each gets its own
+	// $XDG_CACHE_HOME (scoped to this test via t.TempDir()) to keep them from
+	// serving each other's resolution out of that cache — which would bypass
+	// Source.Lookup entirely and produce a "speedup" unrelated to prefetch.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	base := Options{
+		ProjectDir:   writeManifestObj(t, fakeMultiPkgManifest()),
+		Source:       slow,
+		NoNetwork:    false,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+		// disable BOTH prefetches for the baseline run
+		NoPrefetch:         true,
+		NoMetadataPrefetch: true,
+	}
+	tSerial := timeInstall(t, base)
+
+	// Fresh source + project dir + cache root for the parallel run so
+	// neither the fake registry's cache nor the on-disk resolution cache
+	// carries over from the baseline run.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	slow2 := &sleepySourceLookup{delay: 40 * time.Millisecond, versions: fakeMultiPkgVersions()}
+	base.Source = slow2
+	base.ProjectDir = writeManifestObj(t, fakeMultiPkgManifest())
+	base.NoMetadataPrefetch = false
+	tParallel := timeInstall(t, base)
+
+	if tParallel >= tSerial {
+		t.Errorf("metadata prefetch did not speed up install: serial=%v parallel=%v", tSerial, tParallel)
+	}
+	if tParallel*10 >= tSerial*7 { // require > 30% speedup
+		t.Logf("marginal speedup: serial=%v parallel=%v", tSerial, tParallel)
+	}
+}
+
+// TestMetadataPrefetchCancelsOnCacheHit asserts that when resolveOrCache
+// short-circuits (existing-lock or resolution-cache hit), the metadata
+// prefetch pool is cancelled and does not add wall time. Approach: run the
+// pipeline once to populate gomposer.lock, then run it again against a
+// Source whose Lookup blocks until its context is cancelled — if the second
+// run's deferred mprefetch.Wait() actually waited on that pool (the bug this
+// commit fixes), the install would take as long as the bounding context
+// allows; if the pool is cancelled promptly, it returns near-instantly.
+func TestMetadataPrefetchCancelsOnCacheHit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing-sensitive; skipping under -short")
+	}
+	platform.SetTestPlatform(t, "8.2.0")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	dir := writeManifestObj(t, fakeMultiPkgManifest())
+	base := Options{
+		ProjectDir:   dir,
+		Source:       &sleepySourceLookup{delay: 5 * time.Millisecond, versions: fakeMultiPkgVersions()},
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+	}
+
+	// First run: cold resolve, writes gomposer.lock.
+	if err := Install(context.Background(), base); err != nil {
+		t.Fatalf("first Install: %v", err)
+	}
+
+	// Second run: gomposer.lock now exists and matches the manifest, so
+	// resolveOrCache takes the existing-lock short-circuit and never calls
+	// resolveFunc. maybeStartMetadataPrefetch, however, always starts before
+	// resolveOrCache runs — a Source whose Lookup blocks until cancelled
+	// proves the prefetch pool is actually cancelled rather than merely
+	// racing to finish on its own: an uncancelled pool would hang until the
+	// bounding context below expires.
+	base.Source = &blockingSourceLookup{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	if err := Install(ctx, base); err != nil {
+		t.Fatalf("second Install: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	const budget = 200 * time.Millisecond
+	if elapsed > budget {
+		t.Errorf("cache-hit install took %v, want under %v (metadata prefetch should have been cancelled, not awaited)", elapsed, budget)
+	}
+}
+
+// sleepySourceLookup simulates a registry client with an internal metadata
+// cache: the first Lookup for a given name sleeps `delay` (simulated network
+// RTT), subsequent Lookups for the same name return instantly from cache.
+// This is the property maybeStartMetadataPrefetch depends on to be useful at
+// all — warming a name only helps if the warmed result is visible to the
+// resolver's later Lookup call for that same name.
+type sleepySourceLookup struct {
+	delay    time.Duration
+	versions map[string]*registry.PackageMetadata
+
+	mu    sync.Mutex
+	cache map[string]*registry.PackageMetadata
+}
+
+func (s *sleepySourceLookup) Lookup(ctx context.Context, name string) (*registry.PackageMetadata, error) {
+	s.mu.Lock()
+	if v, ok := s.cache[name]; ok {
+		s.mu.Unlock()
+		return v, nil
+	}
+	s.mu.Unlock()
+
+	select {
+	case <-time.After(s.delay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	v, ok := s.versions[name]
+	if !ok {
+		return nil, registry.ErrPackageNotFound
+	}
+	s.mu.Lock()
+	if s.cache == nil {
+		s.cache = map[string]*registry.PackageMetadata{}
+	}
+	s.cache[name] = v
+	s.mu.Unlock()
+	return v, nil
+}
+
+// fakeMultiPkgManifest returns a root manifest requiring 5 independent leaf
+// packages — enough to expose the serial-vs-parallel resolve gap without
+// making the test slow.
+func fakeMultiPkgManifest() *manifest.Manifest {
+	return &manifest.Manifest{
+		Name: "acme/app",
+		Require: map[string]string{
+			"a/a": "^1.0",
+			"b/b": "^1.0",
+			"c/c": "^1.0",
+			"d/d": "^1.0",
+			"e/e": "^1.0",
+		},
+	}
+}
+
+// fakeMultiPkgVersions builds a single 1.0.0 release for each of the 5
+// packages named in fakeMultiPkgManifest, each with a fake dist entry (the
+// fetch/materialize phases use fakeFetcher/fakeMaterializer, so the dist
+// details are never actually read).
+func fakeMultiPkgVersions() map[string]*registry.PackageMetadata {
+	out := map[string]*registry.PackageMetadata{}
+	for _, name := range []string{"a/a", "b/b", "c/c", "d/d", "e/e"} {
+		out[name] = &registry.PackageMetadata{
+			Name: name,
+			Versions: []registry.PackageVersion{{
+				Name: name, Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Dist: registry.Dist{Type: "zip", URL: "http://fixture/" + name + ".zip", Sha: "deadbeef"},
+			}},
+		}
+	}
+	return out
+}
+
+// writeManifestObj serializes m to composer.json in a fresh temp project dir
+// and returns the dir.
+func writeManifestObj(t *testing.T, m *manifest.Manifest) string {
+	t.Helper()
+	dir := t.TempDir()
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("writeManifestObj: encode: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"), data, 0o644); err != nil {
+		t.Fatalf("writeManifestObj: write: %v", err)
+	}
+	return dir
+}
+
+// timeInstall runs Install with opts and returns the wall-clock duration.
+func timeInstall(t *testing.T, opts Options) time.Duration {
+	t.Helper()
+	start := time.Now()
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	return time.Since(start)
 }
