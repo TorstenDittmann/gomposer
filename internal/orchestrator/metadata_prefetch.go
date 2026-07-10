@@ -18,8 +18,9 @@ import (
 // maybeStartMetadataPrefetch. Callers Wait() unconditionally at the end
 // of the pipeline; the noop variant makes that safe.
 type MetadataPrefetcher struct {
-	wg    sync.WaitGroup
-	stats prefetchStats
+	wg     sync.WaitGroup
+	stats  prefetchStats
+	cancel context.CancelFunc
 }
 
 // prefetchStats records outcome for the verbose timing block. Populated
@@ -35,6 +36,16 @@ type prefetchStats struct {
 // noop instance (constructed via newNoopMetadataPrefetcher).
 func (p *MetadataPrefetcher) Wait() {
 	p.wg.Wait()
+}
+
+// Cancel signals every in-flight Lookup to abort. Safe to call even
+// when prefetch is already complete or was constructed via
+// newNoopMetadataPrefetcher (then it's a no-op).
+func (p *MetadataPrefetcher) Cancel() {
+	if p == nil || p.cancel == nil {
+		return
+	}
+	p.cancel()
 }
 
 // Stats returns the number of packages successfully warmed and the pool's
@@ -108,12 +119,22 @@ func maybeStartMetadataPrefetch(ctx context.Context, ps *pipelineState, opts Opt
 	if len(names) == 0 {
 		return newNoopMetadataPrefetcher()
 	}
-	p := &MetadataPrefetcher{}
+	// A separately created cancellable context sits in front of
+	// errgroup.WithContext so Cancel() can abort every in-flight Lookup
+	// without waiting for a g.Go closure to return an error. Both are
+	// constructed here, before the goroutine spawns, so the constructor can
+	// hold a reference to cancel.
+	cancelCtx, cancel := context.WithCancel(ctx)
+	g, gctx := errgroup.WithContext(cancelCtx)
+	p := &MetadataPrefetcher{cancel: cancel}
 	p.wg.Add(1)
 	start := time.Now()
 	go func() {
 		defer p.wg.Done()
-		g, gctx := errgroup.WithContext(ctx)
+		// Release cancelCtx's resources once the pool is done, whether it
+		// finished naturally or was aborted via Cancel(). cancel is
+		// idempotent, so this never races with an external Cancel() call.
+		defer cancel()
 		g.SetLimit(workerCount(opts.Workers))
 		for _, name := range names {
 			name := name

@@ -139,36 +139,41 @@ var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.Sour
 //   - or runs the resolver and caches the result.
 //
 // forceResolve=true skips the existing lock and the cache (Update path).
-func resolveOrCache(ctx context.Context, ps *pipelineState, forceResolve bool) (*lock.File, error) {
+//
+// The second return value reports whether the lock came from a short-circuit
+// path (existing lockfile or resolution cache hit) rather than a fresh
+// resolve. Callers use it to cancel the metadata prefetch pool, which only
+// pays for itself when a real resolve actually runs.
+func resolveOrCache(ctx context.Context, ps *pipelineState, forceResolve bool) (*lock.File, bool /* fromCache */, error) {
 	// If a lockfile exists and we're not forcing re-resolution, use it directly.
 	// This is the happy path for `install` when the lock is up to date.
 	if !forceResolve && len(ps.lockBytes) > 0 {
 		if existing, err := lock.Decode(ps.lockBytes); err == nil {
-			return existing, nil
+			return existing, true, nil
 		}
 		// Corrupt lockfile: fall through to resolve.
 	}
 
 	if !forceResolve {
 		if cached, ok, err := loadResolution(ps.cacheKey); err == nil && ok {
-			return cached, nil
+			return cached, true, nil
 		}
 	}
 
 	src := ps.opts.Source
 	if src == nil {
-		return nil, fmt.Errorf("orchestrator: no registry source configured")
+		return nil, false, fmt.Errorf("orchestrator: no registry source configured")
 	}
 
 	res, err := resolveFunc(ctx, ps, src, !ps.opts.NoDev)
 	if err != nil {
-		return nil, fmt.Errorf("orchestrator: resolve: %w", err)
+		return nil, false, fmt.Errorf("orchestrator: resolve: %w", err)
 	}
 
 	f := buildLockFile(ps, res)
 	// Best-effort cache write. Resolution proceeds even if the cache write fails.
 	_ = storeResolution(ps.cacheKey, f)
-	return f, nil
+	return f, false, nil
 }
 
 func buildLockFile(ps *pipelineState, res *resolver.Result) *lock.File {
@@ -201,7 +206,8 @@ func resolveOnly(ctx context.Context, opts Options) (*lock.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resolveOrCache(ctx, ps, true /* forceResolve, ignore cache in tests */)
+	f, _, err := resolveOrCache(ctx, ps, true /* forceResolve, ignore cache in tests */)
+	return f, err
 }
 
 // fetchAll downloads every package in pkgs concurrently with at most
@@ -387,8 +393,16 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	prefetch := maybeStartPrefetch(ctx, ps, opts, forceResolve)
 
 	t.Begin("resolve")
-	lockFile, err := resolveOrCache(ctx, ps, forceResolve)
+	lockFile, fromCache, err := resolveOrCache(ctx, ps, forceResolve)
 	t.End("resolve")
+	if fromCache {
+		// resolveOrCache short-circuited (existing lockfile or resolution
+		// cache hit): the resolver never ran, so the metadata prefetch pool's
+		// in-flight Lookups warmed a cache nothing will read this run. Cancel
+		// it so the deferred mprefetch.Wait() above returns immediately
+		// instead of blocking on 20 orphan HTTP requests.
+		mprefetch.Cancel()
+	}
 	if err != nil {
 		prefetch.Wait()
 		return err

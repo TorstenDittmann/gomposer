@@ -264,6 +264,59 @@ func TestMetadataPrefetchReducesResolveWallTime(t *testing.T) {
 	}
 }
 
+// TestMetadataPrefetchCancelsOnCacheHit asserts that when resolveOrCache
+// short-circuits (existing-lock or resolution-cache hit), the metadata
+// prefetch pool is cancelled and does not add wall time. Approach: run the
+// pipeline once to populate gomposer.lock, then run it again against a
+// Source whose Lookup blocks until its context is cancelled — if the second
+// run's deferred mprefetch.Wait() actually waited on that pool (the bug this
+// commit fixes), the install would take as long as the bounding context
+// allows; if the pool is cancelled promptly, it returns near-instantly.
+func TestMetadataPrefetchCancelsOnCacheHit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing-sensitive; skipping under -short")
+	}
+	platform.SetTestPlatform(t, "8.2.0")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	dir := writeManifestObj(t, fakeMultiPkgManifest())
+	base := Options{
+		ProjectDir:   dir,
+		Source:       &sleepySourceLookup{delay: 5 * time.Millisecond, versions: fakeMultiPkgVersions()},
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+	}
+
+	// First run: cold resolve, writes gomposer.lock.
+	if err := Install(context.Background(), base); err != nil {
+		t.Fatalf("first Install: %v", err)
+	}
+
+	// Second run: gomposer.lock now exists and matches the manifest, so
+	// resolveOrCache takes the existing-lock short-circuit and never calls
+	// resolveFunc. maybeStartMetadataPrefetch, however, always starts before
+	// resolveOrCache runs — a Source whose Lookup blocks until cancelled
+	// proves the prefetch pool is actually cancelled rather than merely
+	// racing to finish on its own: an uncancelled pool would hang until the
+	// bounding context below expires.
+	base.Source = &blockingSourceLookup{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	if err := Install(ctx, base); err != nil {
+		t.Fatalf("second Install: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	const budget = 200 * time.Millisecond
+	if elapsed > budget {
+		t.Errorf("cache-hit install took %v, want under %v (metadata prefetch should have been cancelled, not awaited)", elapsed, budget)
+	}
+}
+
 // sleepySourceLookup simulates a registry client with an internal metadata
 // cache: the first Lookup for a given name sleeps `delay` (simulated network
 // RTT), subsequent Lookups for the same name return instantly from cache.

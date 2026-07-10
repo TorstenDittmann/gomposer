@@ -171,3 +171,59 @@ func (c *countingSourceLookup) Lookup(_ context.Context, name string) (*registry
 	c.onLookup()
 	return &registry.PackageMetadata{Name: name}, nil
 }
+
+// TestMetadataPrefetcherCancelStopsPool asserts that Cancel() aborts
+// in-flight Lookup calls promptly and that none of them are counted as
+// warmed — only a genuinely successful Lookup should increment
+// stats.warmed.
+func TestMetadataPrefetcherCancelStopsPool(t *testing.T) {
+	started := make(chan struct{}, 3)
+	src := &blockingSourceLookup{
+		onStart: func() {
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+		},
+	}
+	ps := &pipelineState{
+		manifest: &manifest.Manifest{
+			Require: map[string]string{"a/a": "^1", "b/b": "^1", "c/c": "^1"},
+		},
+	}
+	opts := Options{Source: src}
+	p := maybeStartMetadataPrefetch(context.Background(), ps, opts)
+	<-started // wait for at least one worker to enter Lookup
+	p.Cancel()
+	p.Wait()
+
+	// Even if some workers were mid-Lookup, cancel should have short-
+	// circuited them. Assert no calls counted as warmed.
+	warmed, _ := p.Stats()
+	if warmed != 0 {
+		t.Errorf("cancelled prefetch reported %d warmed, want 0", warmed)
+	}
+}
+
+// TestMetadataPrefetcherCancelIsSafeOnNoop asserts that Cancel() on a noop
+// instance (prefetch disabled, or nothing to warm) is a harmless no-op.
+func TestMetadataPrefetcherCancelIsSafeOnNoop(t *testing.T) {
+	p := newNoopMetadataPrefetcher()
+	p.Cancel() // must not panic
+	p.Wait()
+}
+
+// blockingSourceLookup blocks every Lookup call until its context is
+// cancelled, then reports ctx.Err(). Used to assert that Cancel() actually
+// unblocks in-flight prefetch workers rather than merely being ignored.
+type blockingSourceLookup struct {
+	onStart func()
+}
+
+func (b *blockingSourceLookup) Lookup(ctx context.Context, _ string) (*registry.PackageMetadata, error) {
+	if b.onStart != nil {
+		b.onStart()
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
