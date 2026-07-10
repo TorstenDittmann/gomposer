@@ -17,30 +17,41 @@ import (
 // MetadataPrefetcher is the runtime handle returned by
 // maybeStartMetadataPrefetch. Callers Wait() unconditionally at the end
 // of the pipeline; the noop variant makes that safe.
+//
+// Intended sequence:
+//   - Wait() alone — let the pool run to completion, then drain.
+//   - Cancel() then Wait() — abort in-flight lookups (they observe
+//     ctx.Err() and count as errors, not warmed), then drain quickly.
+//   - Wait() alone on a noop — returns immediately.
+//
+// Cancel is idempotent and safe on a noop instance.
 type MetadataPrefetcher struct {
 	wg     sync.WaitGroup
 	stats  prefetchStats
 	cancel context.CancelFunc
 }
 
-// prefetchStats records outcome for the verbose timing block. Populated
-// atomically by worker goroutines in Task 2.
+// prefetchStats records the outcome the verbose timing block surfaces.
+// Failed lookups are intentionally not counted — the resolver's on-demand
+// Lookup is authoritative and will retry; a "pool error count" would be
+// misleading (a cancelled prefetch inflates it without any real problem).
 type prefetchStats struct {
 	mu       sync.Mutex
 	warmed   int
-	errors   int
 	duration time.Duration
 }
 
 // Wait blocks until every worker goroutine returns. Safe to call on a
-// noop instance (constructed via newNoopMetadataPrefetcher).
+// noop instance (constructed via newNoopMetadataPrefetcher). Callers that
+// want to abort work in flight should Cancel() before Wait().
 func (p *MetadataPrefetcher) Wait() {
 	p.wg.Wait()
 }
 
-// Cancel signals every in-flight Lookup to abort. Safe to call even
-// when prefetch is already complete or was constructed via
-// newNoopMetadataPrefetcher (then it's a no-op).
+// Cancel signals every in-flight Lookup to abort. Idempotent; safe to
+// call on a noop instance and safe to call after the pool has already
+// completed. Callers typically pair Cancel() with a subsequent Wait() so
+// the goroutine can drain before the pipeline returns.
 func (p *MetadataPrefetcher) Cancel() {
 	if p == nil || p.cancel == nil {
 		return
@@ -140,10 +151,7 @@ func maybeStartMetadataPrefetch(ctx context.Context, ps *pipelineState, opts Opt
 			name := name
 			g.Go(func() error {
 				if _, err := opts.Source.Lookup(gctx, name); err != nil {
-					p.stats.mu.Lock()
-					p.stats.errors++
-					p.stats.mu.Unlock()
-					return nil // errors do not propagate
+					return nil // errors do not propagate — resolver's on-demand Lookup is authoritative
 				}
 				p.stats.mu.Lock()
 				p.stats.warmed++
