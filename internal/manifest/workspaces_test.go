@@ -100,6 +100,22 @@ func TestDiscoverWorkspacesEmptyArrayShortCircuits(t *testing.T) {
 	}
 }
 
+func TestDiscoverWorkspacesRejectsEmptyName(t *testing.T) {
+	dir := t.TempDir()
+	// Workspace with no "name" field — must fail.
+	if err := writeFile(t, filepath.Join(dir, "packages", "nameless", "composer.json"), `{}`); err != nil {
+		t.Fatal(err)
+	}
+	root := &Manifest{Workspaces: []string{"packages/*"}}
+	_, err := DiscoverWorkspaces(dir, root, nil)
+	if err == nil {
+		t.Fatal("expected error on workspace with empty name")
+	}
+	if !strings.Contains(err.Error(), "has no name") {
+		t.Errorf("err = %v — should mention the missing name", err)
+	}
+}
+
 // writeFile creates parent dirs and writes body to path.
 func writeFile(t *testing.T, path, body string) error {
 	t.Helper()
