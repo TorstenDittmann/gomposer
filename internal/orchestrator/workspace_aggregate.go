@@ -16,10 +16,13 @@ import (
 
 // BuildAggregateManifest returns the manifest the resolver actually sees.
 // It's the union of root's requires and every workspace's requires, minus
-// every workspace:-prefixed entry. Duplicate external requires with
-// compatible constraints are collapsed to the first-seen; conflicts are
-// left to the resolver (its PubGrub derivation names the specific
-// packages, which is more useful than an aggregate-time error).
+// every workspace:-prefixed entry. When two owners (root and/or workspaces)
+// require the same external package with different constraint strings, the
+// constraints are intersected by concatenating them with a space — Composer's
+// AND syntax — rather than picking one and dropping the other. Compatible
+// constraints (e.g. "^6.0" and ">=6.2") intersect cleanly at solve time;
+// genuinely incompatible ones (e.g. "^6.0" and "^7.0") surface as a real
+// PubGrub derivation naming both owners, instead of being silently dropped.
 func BuildAggregateManifest(root *manifest.Manifest, workspaces []manifest.Workspace, includeDev bool) (*manifest.Manifest, error) {
 	if root == nil {
 		return nil, fmt.Errorf("workspaces: nil root manifest")
@@ -69,7 +72,15 @@ func BuildAggregateManifest(root *manifest.Manifest, workspaces []manifest.Works
 				}
 				continue // don't leak to aggregate
 			}
-			if _, dup := dst[name]; !dup {
+			if existing, dup := dst[name]; dup {
+				// Intersect: Composer's AND syntax uses whitespace between
+				// clauses. Skip if the constraints are already textually
+				// identical (common case) to avoid redundant "^6.0 ^6.0".
+				if existing == raw {
+					continue
+				}
+				dst[name] = existing + " " + raw
+			} else {
 				dst[name] = raw
 			}
 		}

@@ -126,3 +126,39 @@ func TestBuildAggregateManifestExcludesDevWhenAsked(t *testing.T) {
 		t.Errorf("Require[psr/log] = %q", agg.Require["psr/log"])
 	}
 }
+
+func TestBuildAggregateManifestIntersectsDuplicateExternalRequires(t *testing.T) {
+	root := &manifest.Manifest{Name: "acme/monorepo"}
+	ws := []manifest.Workspace{
+		mkWorkspace("acme/a", "1.0.0", map[string]string{"symfony/console": "^6.0"}),
+		mkWorkspace("acme/b", "1.0.0", map[string]string{"symfony/console": ">=6.2"}),
+	}
+	agg, err := BuildAggregateManifest(root, ws, true)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// The aggregate constraint must reflect BOTH inputs so the resolver
+	// enforces both. Textual expectation: "^6.0 >=6.2" or ">=6.2 ^6.0" —
+	// accept either order depending on iteration.
+	got := agg.Require["symfony/console"]
+	if got != "^6.0 >=6.2" && got != ">=6.2 ^6.0" {
+		t.Errorf(`aggregate constraint = %q; want the intersection of both inputs`, got)
+	}
+}
+
+func TestBuildAggregateManifestSkipsIdenticalDuplicates(t *testing.T) {
+	// Two workspaces requiring the exact same constraint string should
+	// still emit the single string, not "^6.0 ^6.0".
+	root := &manifest.Manifest{Name: "acme/monorepo"}
+	ws := []manifest.Workspace{
+		mkWorkspace("acme/a", "1.0.0", map[string]string{"symfony/console": "^6.0"}),
+		mkWorkspace("acme/b", "1.0.0", map[string]string{"symfony/console": "^6.0"}),
+	}
+	agg, err := BuildAggregateManifest(root, ws, true)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := agg.Require["symfony/console"]; got != "^6.0" {
+		t.Errorf(`aggregate constraint = %q, want "^6.0"`, got)
+	}
+}
