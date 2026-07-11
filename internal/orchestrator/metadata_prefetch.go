@@ -264,10 +264,11 @@ func (p *MetadataPrefetcher) dispatch(name string) {
 // Add enqueues additional names into the running metadata prefetch pool.
 // Safe to call from multiple goroutines. Names that fail the workspace /
 // platform filter or were already enqueued (either as part of the
-// initial warm set or by a prior Add) are silently dropped. Fire-and-
-// forget — returns immediately without waiting for the lookups to
-// complete. Callers should still Wait on the prefetcher at the end of
-// the pipeline to drain the pool.
+// initial warm set or by a prior Add) are silently dropped. Returns
+// without waiting for the lookups to complete — but may briefly block
+// the caller when the pool's concurrency limit is saturated (the
+// errgroup's SetLimit backpressure). Callers should still Wait on the
+// prefetcher at the end of the pipeline to drain the pool.
 //
 // Safe to call on a noop instance (constructed via
 // newNoopMetadataPrefetcher): it's a no-op.
