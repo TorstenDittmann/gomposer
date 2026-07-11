@@ -1,0 +1,4 @@
+{
+    "name": "acme/api",
+    "require": { "acme/shared": "workspace:^1.0" }
+}
