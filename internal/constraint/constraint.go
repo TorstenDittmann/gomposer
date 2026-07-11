@@ -71,6 +71,11 @@ type Constraint struct {
 	clauses [][]term
 	// Original is the input string, retained for diagnostics.
 	Original string
+	// IsWorkspace is true when the input constraint started with "workspace:".
+	// The rest of the struct describes the constraint on the tail — the
+	// aggregate builder in orchestrator/ consults IsWorkspace to route the
+	// require through the local workspace set instead of the registry.
+	IsWorkspace bool
 }
 
 // Satisfies reports whether v satisfies the constraint.
@@ -115,6 +120,14 @@ func andSatisfies(clause []term, v Version) bool {
 // for diagnostics.
 func Parse(s string) (Constraint, error) {
 	c := Constraint{Original: s}
+	var workspace bool
+	if strings.HasPrefix(s, "workspace:") {
+		workspace = true
+		s = strings.TrimPrefix(s, "workspace:")
+		if s == "" {
+			return Constraint{}, fmt.Errorf("constraint: empty workspace:<tail>")
+		}
+	}
 	// Composer accepts both "|" and "||" as the OR separator, often without
 	// surrounding whitespace ("^7.2|^8.0"). Normalize "||" to "|" first, then
 	// split on "|".
@@ -138,6 +151,7 @@ func Parse(s string) (Constraint, error) {
 		}
 		c.clauses = append(c.clauses, clause)
 	}
+	c.IsWorkspace = workspace
 	return c, nil
 }
 

@@ -435,3 +435,70 @@ func TestBranchAliasVariants(t *testing.T) {
 		}
 	}
 }
+
+func TestConstraintParseWorkspaceStar(t *testing.T) {
+	c, err := Parse("workspace:*")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !c.IsWorkspace {
+		t.Errorf("IsWorkspace = false, want true")
+	}
+	// workspace:* matches every version (like plain "*").
+	v, _ := ParseVersion("1.2.3")
+	if !c.Satisfies(v) {
+		t.Errorf("workspace:* rejected 1.2.3")
+	}
+	v, _ = ParseVersion("999.0.0")
+	if !c.Satisfies(v) {
+		t.Errorf("workspace:* rejected 999.0.0")
+	}
+}
+
+func TestConstraintParseWorkspaceCaret(t *testing.T) {
+	c, err := Parse("workspace:^1.0")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !c.IsWorkspace {
+		t.Errorf("IsWorkspace = false, want true")
+	}
+	// ^1.0 semantics: matches 1.x, rejects 2.x.
+	v, _ := ParseVersion("1.5.0")
+	if !c.Satisfies(v) {
+		t.Errorf("workspace:^1.0 rejected 1.5.0")
+	}
+	v, _ = ParseVersion("2.0.0")
+	if c.Satisfies(v) {
+		t.Errorf("workspace:^1.0 admitted 2.0.0")
+	}
+}
+
+func TestConstraintParseWorkspaceExactVersion(t *testing.T) {
+	c, err := Parse("workspace:1.2.3")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !c.IsWorkspace {
+		t.Errorf("IsWorkspace = false, want true")
+	}
+	v, _ := ParseVersion("1.2.3")
+	if !c.Satisfies(v) {
+		t.Errorf("workspace:1.2.3 rejected 1.2.3")
+	}
+	v, _ = ParseVersion("1.2.4")
+	if c.Satisfies(v) {
+		t.Errorf("workspace:1.2.3 admitted 1.2.4")
+	}
+}
+
+// Sanity: normal constraints without the prefix don't get the flag.
+func TestConstraintNoWorkspaceFlagOnRegular(t *testing.T) {
+	c, err := Parse("^1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.IsWorkspace {
+		t.Errorf("plain ^1.0 has IsWorkspace = true")
+	}
+}
