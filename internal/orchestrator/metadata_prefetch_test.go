@@ -45,6 +45,12 @@ func (f *fakeSourceLookup) totalCalls() int {
 	return total
 }
 
+func (f *fakeSourceLookup) callsFor(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[name]
+}
+
 func TestCollectMetadataPrefetchNamesUnionsAndDedupes(t *testing.T) {
 	ps := &pipelineState{
 		manifest: &manifest.Manifest{
@@ -249,4 +255,93 @@ func (b *blockingSourceLookup) Lookup(ctx context.Context, _ string) (*registry.
 	}
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+func TestMetadataPrefetcherAddDedupesAcrossConcurrentCallers(t *testing.T) {
+	src := newFakeSourceLookup()
+	ps := &pipelineState{
+		manifest: &manifest.Manifest{Require: map[string]string{"a/a": "^1"}},
+	}
+	opts := Options{Source: src}
+	p := maybeStartMetadataPrefetch(context.Background(), ps, opts)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Overlapping name sets across 5 goroutines; every name
+			// should be Lookup'd exactly once (or zero times if it was
+			// in the seed set, like a/a).
+			p.Add([]string{"a/a", "b/b", "c/c", "d/d"})
+		}()
+	}
+	wg.Wait()
+	p.Wait()
+
+	// a/a was in the initial warm set (seeded).
+	// b/b, c/c, d/d each Lookup once.
+	if got := src.callsFor("a/a"); got != 1 {
+		t.Errorf("a/a Lookup count = %d, want 1 (initial warm set only)", got)
+	}
+	for _, name := range []string{"b/b", "c/c", "d/d"} {
+		if got := src.callsFor(name); got != 1 {
+			t.Errorf("%s Lookup count = %d, want 1 (dedup failed)", name, got)
+		}
+	}
+}
+
+func TestMetadataPrefetcherAddFiltersPlatformReqs(t *testing.T) {
+	src := newFakeSourceLookup()
+	ps := &pipelineState{
+		manifest: &manifest.Manifest{Require: map[string]string{"a/a": "^1"}},
+	}
+	opts := Options{Source: src}
+	p := maybeStartMetadataPrefetch(context.Background(), ps, opts)
+
+	p.Add([]string{"php", "ext-json", "lib-curl", "b/b"})
+	p.Wait()
+
+	for _, name := range []string{"php", "ext-json", "lib-curl"} {
+		if got := src.callsFor(name); got != 0 {
+			t.Errorf("platform req %s hit Lookup: %d", name, got)
+		}
+	}
+	if got := src.callsFor("b/b"); got != 1 {
+		t.Errorf("b/b Lookup count = %d, want 1", got)
+	}
+}
+
+func TestMetadataPrefetcherAddFiltersWorkspaceNames(t *testing.T) {
+	src := newFakeSourceLookup()
+	ps := &pipelineState{
+		manifest: &manifest.Manifest{Require: map[string]string{"a/a": "^1"}},
+		workspaces: []manifest.Workspace{
+			{Name: "acme/shared"},
+			{Name: "acme/api"},
+		},
+	}
+	opts := Options{Source: src}
+	p := maybeStartMetadataPrefetch(context.Background(), ps, opts)
+
+	// A workspace name arriving via Add (e.g. a transitive require) must
+	// be filtered — workspaces are already known locally.
+	p.Add([]string{"acme/shared", "acme/api", "b/b"})
+	p.Wait()
+
+	for _, name := range []string{"acme/shared", "acme/api"} {
+		if got := src.callsFor(name); got != 0 {
+			t.Errorf("workspace %s hit Lookup: %d", name, got)
+		}
+	}
+	if got := src.callsFor("b/b"); got != 1 {
+		t.Errorf("b/b Lookup count = %d, want 1", got)
+	}
+}
+
+func TestMetadataPrefetcherAddOnNoopIsSafe(t *testing.T) {
+	p := newNoopMetadataPrefetcher()
+	// Must not panic and must not attempt any Lookup.
+	p.Add([]string{"a/a", "b/b"})
+	p.Wait() // returns immediately
 }
