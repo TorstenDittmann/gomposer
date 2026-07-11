@@ -534,6 +534,106 @@ func TestResolveCallbackFeedsMprefetchAdd(t *testing.T) {
 
 // --- Task 4: workspaces pipeline wire-in ---
 
+// TestMetadataPrefetchWarmTransitivesOnFreshInstall asserts Scope C:
+// on a fresh install with no lock, transitive requires get prefetched
+// as the solver commits versions, so total wall time is lower than
+// with metadata prefetch disabled entirely.
+func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing-sensitive; skipping under -short")
+	}
+	platform.SetTestPlatform(t, "8.2.0")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	// Chain: acme/a -> acme/b -> acme/c -> acme/d -> acme/e, each takes 80ms on first Lookup.
+	// Root only requires acme/a; acme/b/c/d/e are pure transitives that only
+	// discovery-driven prefetch can warm during resolution.
+	chain := map[string]*registry.PackageMetadata{
+		"acme/a": {
+			Name: "acme/a",
+			Versions: []registry.PackageVersion{{
+				Name:        "acme/a",
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Require:     map[string]string{"acme/b": "^1.0"},
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-a.zip", Sha: "deadbeef"},
+			}},
+		},
+		"acme/b": {
+			Name: "acme/b",
+			Versions: []registry.PackageVersion{{
+				Name:        "acme/b",
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Require:     map[string]string{"acme/c": "^1.0"},
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-b.zip", Sha: "deadbeef"},
+			}},
+		},
+		"acme/c": {
+			Name: "acme/c",
+			Versions: []registry.PackageVersion{{
+				Name:        "acme/c",
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Require:     map[string]string{"acme/d": "^1.0"},
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-c.zip", Sha: "deadbeef"},
+			}},
+		},
+		"acme/d": {
+			Name: "acme/d",
+			Versions: []registry.PackageVersion{{
+				Name:        "acme/d",
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Require:     map[string]string{"acme/e": "^1.0"},
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-d.zip", Sha: "deadbeef"},
+			}},
+		},
+		"acme/e": {
+			Name: "acme/e",
+			Versions: []registry.PackageVersion{{
+				Name:        "acme/e",
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Require:     nil,
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-e.zip", Sha: "deadbeef"},
+			}},
+		},
+	}
+
+	baseOpts := func() Options {
+		return Options{
+			ProjectDir:   writeManifestObj(t, &manifest.Manifest{
+				Name:    "acme/app",
+				Require: map[string]string{"acme/a": "^1.0"},
+			}),
+			Source:       &sleepySourceLookup{delay: 80 * time.Millisecond, versions: chain},
+			Fetcher:      &fakeFetcher{},
+			Materializer: &fakeMaterializer{},
+			Autoloader:   &fakeAutoloader{},
+			NoScripts:    true,
+			NoPrefetch:   true, // artifact prefetch off — isolate metadata prefetch
+		}
+	}
+
+	// Baseline: no metadata prefetch.
+	base := baseOpts()
+	base.NoMetadataPrefetch = true
+	tBaseline := timeInstall(t, base)
+
+	// Fresh cache for the prefetch run.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	// With discovery-driven prefetch (default on).
+	on := baseOpts()
+	on.NoMetadataPrefetch = false
+	tPrefetch := timeInstall(t, on)
+
+	if tPrefetch >= tBaseline {
+		t.Errorf("discovery-driven prefetch did not speed up install: baseline=%v prefetch=%v", tBaseline, tPrefetch)
+	}
+}
+
 // TestWorkspacesFullPipelineHappyPath drives Install end-to-end on a tiny
 // monorepo (root + two workspaces, one depending on the other via the
 // workspace: protocol) and asserts the resulting lockfile records both
