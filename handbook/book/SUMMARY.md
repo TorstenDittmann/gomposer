@@ -1,4 +1,10 @@
 # Summary
 
 - [Introduction](README.md)
-- [Getting Started](getting-started.md)
+- [Install](install.md)
+- [CLI reference](cli.md)
+- [Composer compatibility](composer-compatibility.md)
+- [Workspaces](workspaces.md)
+- [Cache paths](cache.md)
+- [Benchmarks](benchmarks.md)
+- [Contributing](contributing.md)

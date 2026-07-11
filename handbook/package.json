@@ -1,0 +1,17 @@
+{
+	"name": "handbook",
+	"private": true,
+	"scripts": {
+		"dev": "docia dev",
+		"build": "docia build"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"docia": "^0.0.15"
+	}
+}

@@ -4,8 +4,9 @@ export default defineConfig({
   srcDir: "book",
   outDir: "dist",
   site: {
-    title: "Handbook",
-    description: "Handbook documentation built with docia.",
+    title: "gomposer",
+    description:
+      "gomposer — a Composer-compatible PHP dependency installer written in Go, with pnpm/bun-style workspaces for monorepos.",
     language: "en",
   },
 });
