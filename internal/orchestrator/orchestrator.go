@@ -166,7 +166,13 @@ func workerCount(opt int) int {
 }
 
 func run(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool) error {
-	if len(m.Require) == 0 && len(m.RequireDev) == 0 {
+	// A manifest with no requires and no workspaces has nothing to resolve
+	// or lock. Workspaces still need the full pipeline even when the root
+	// manifest itself declares no direct requires — that's the common
+	// monorepo shape (root manifest is just a workspaces list), and the
+	// aggregate manifest built from its workspaces may have requires of its
+	// own, plus the lockfile needs the synthetic workspace entries.
+	if len(m.Require) == 0 && len(m.RequireDev) == 0 && len(m.Workspaces) == 0 {
 		return nil
 	}
 	if opts.NoNetwork {

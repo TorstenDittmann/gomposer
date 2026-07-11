@@ -19,6 +19,19 @@ import (
 	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
+// writeFile creates path (and any missing parent directories) with the
+// given contents. Used by workspace-pipeline tests to seed a monorepo
+// directory tree under t.TempDir().
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("writeFile: mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("writeFile: write %s: %v", path, err)
+	}
+}
+
 func mustVer(t *testing.T, s string) constraint.Version {
 	t.Helper()
 	v, err := constraint.ParseVersion(s)
@@ -415,4 +428,53 @@ func timeInstall(t *testing.T, opts Options) time.Duration {
 		t.Fatalf("Install: %v", err)
 	}
 	return time.Since(start)
+}
+
+// --- Task 4: workspaces pipeline wire-in ---
+
+// TestWorkspacesFullPipelineHappyPath drives Install end-to-end on a tiny
+// monorepo (root + two workspaces, one depending on the other via the
+// workspace: protocol) and asserts the resulting lockfile records both
+// workspaces as first-class type=workspace entries. Assertions about the
+// vendor/ symlink layout land in Task 5 — this test's job is only to prove
+// discovery + aggregation + lockfile grafting work end-to-end without error.
+func TestWorkspacesFullPipelineHappyPath(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "composer.json"), `{
+        "name": "acme/monorepo",
+        "workspaces": ["packages/*", "apps/*"]
+    }`)
+	writeFile(t, filepath.Join(dir, "packages", "shared", "composer.json"), `{
+        "name": "acme/shared",
+        "version": "1.0.0",
+        "autoload": { "psr-4": { "Acme\\Shared\\": "src/" } }
+    }`)
+	writeFile(t, filepath.Join(dir, "packages", "shared", "src", "Thing.php"), "<?php\nnamespace Acme\\Shared; class Thing {}")
+	writeFile(t, filepath.Join(dir, "apps", "api", "composer.json"), `{
+        "name": "acme/api",
+        "require": { "acme/shared": "workspace:^1.0" }
+    }`)
+
+	opts := Options{
+		ProjectDir:   dir,
+		Source:       &fakeSource{pkgs: map[string]*registry.PackageMetadata{}},
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	lockBytes, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(lockBytes, []byte(`"type": "workspace"`)) {
+		t.Errorf(`gomposer.lock has no "type": "workspace" entries:\n%s`, lockBytes)
+	}
+	if !bytes.Contains(lockBytes, []byte(`"acme/shared"`)) || !bytes.Contains(lockBytes, []byte(`"acme/api"`)) {
+		t.Errorf("gomposer.lock missing workspace names:\n%s", lockBytes)
+	}
 }

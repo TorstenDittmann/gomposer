@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -78,6 +79,14 @@ type pipelineState struct {
 	platformStr   string             // fingerprint string (cache key input)
 	cacheKey      string
 	ignoreSet     map[string]bool
+
+	// workspaces is the discovered workspace set (nil for single-project
+	// runs — no "workspaces" key in the root manifest).
+	workspaces []manifest.Workspace
+	// aggregateManifest is the manifest the resolver actually sees: the
+	// union of root + every workspace's external requires, workspace:
+	// entries stripped. Equal to manifest when workspaces is empty.
+	aggregateManifest *manifest.Manifest
 }
 
 func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error) {
@@ -97,15 +106,49 @@ func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error
 		}
 	}
 	pfStr := pf.Fingerprint()
+
+	warnf := func(format string, args ...any) {
+		if opts.Quiet {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "gomposer: "+format+"\n", args...)
+	}
+	workspaces, err := manifest.DiscoverWorkspaces(opts.ProjectDir, m, warnf)
+	if err != nil {
+		return nil, fmt.Errorf("orchestrator: %w", err)
+	}
+	aggregateManifest := m
+	if len(workspaces) > 0 {
+		aggregateManifest, err = BuildAggregateManifest(m, workspaces, !opts.NoDev)
+		if err != nil {
+			return nil, fmt.Errorf("orchestrator: %w", err)
+		}
+	}
+
+	// Cache key input is extended with every workspace manifest's raw
+	// bytes, sorted by name for determinism, so an edit to any workspace's
+	// composer.json invalidates the resolution cache.
+	allManifests := manifestBytes
+	if len(workspaces) > 0 {
+		sorted := append([]manifest.Workspace(nil), workspaces...)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+		for _, w := range sorted {
+			b, _ := os.ReadFile(filepath.Join(w.Dir, "composer.json"))
+			allManifests = append(allManifests, b...)
+		}
+	}
+
 	return &pipelineState{
-		opts:          opts,
-		manifest:      m,
-		manifestBytes: manifestBytes,
-		lockBytes:     lockBytes,
-		platform:      pf,
-		platformStr:   pfStr,
-		cacheKey:      computeCacheKey(manifestBytes, lockBytes, pfStr),
-		ignoreSet:     ignore,
+		opts:              opts,
+		manifest:          m,
+		manifestBytes:     manifestBytes,
+		lockBytes:         lockBytes,
+		platform:          pf,
+		platformStr:       pfStr,
+		cacheKey:          computeCacheKey(allManifests, lockBytes, pfStr),
+		ignoreSet:         ignore,
+		workspaces:        workspaces,
+		aggregateManifest: aggregateManifest,
 	}, nil
 }
 
@@ -120,7 +163,7 @@ func buildIgnoreSet(list []string) map[string]bool {
 // resolveFunc is the resolver entry point, indirected for tests.
 var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.SourceLookup, includeDev bool) (*resolver.Result, error) {
 	return resolver.Solve(ctx, resolver.Input{
-		Manifest:            ps.manifest,
+		Manifest:            ps.aggregateManifest,
 		Source:              src,
 		IncludeDev:          includeDev,
 		Platform:            ps.platform,
@@ -179,6 +222,7 @@ func resolveOrCache(ctx context.Context, ps *pipelineState, forceResolve bool) (
 func buildLockFile(ps *pipelineState, res *resolver.Result) *lock.File {
 	manifestHash := sha256.Sum256(ps.manifestBytes)
 	prod, dev := resolver.ToLockPackages(res)
+	prod = append(prod, workspaceLockPackages(ps)...)
 	return &lock.File{
 		SchemaVersion:       lock.SchemaVersion,
 		Generator:           lock.Generator{Name: "gomposer", Version: "0.1.0"},
@@ -262,6 +306,20 @@ func backfillSha(pkgs []lock.Package, keys map[string]string) {
 			}
 		}
 	}
+}
+
+// nonWorkspacePackages filters out synthetic type=workspace lock entries,
+// which have no Dist/store-backed content to fetch or materialize. Order of
+// the remaining packages is preserved.
+func nonWorkspacePackages(pkgs []lock.Package) []lock.Package {
+	out := make([]lock.Package, 0, len(pkgs))
+	for _, p := range pkgs {
+		if p.Type == "workspace" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // materializeAll extracts each package from the store into vendor/.
@@ -456,8 +514,16 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	// is authoritative.
 	prefetch.Wait()
 
+	// Workspace entries are synthetic (type=workspace, no Dist, a "path"
+	// source): there is nothing to download or extract from a store. They
+	// stay in `all` for the autoloader (Task 5's symlink pass wires their
+	// InstallPath through to the workspace source dir) but are excluded
+	// from fetch/materialize, which only make sense for real registry- or
+	// VCS-backed packages.
+	fetchable := nonWorkspacePackages(all)
+
 	t.Begin("fetch")
-	keys, err := fetchAll(ctx, all, opts.Fetcher, workerCount(opts.Workers), opts.Progress)
+	keys, err := fetchAll(ctx, fetchable, opts.Fetcher, workerCount(opts.Workers), opts.Progress)
 	if err != nil {
 		t.End("fetch")
 		return err
@@ -470,7 +536,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	t.End("fetch")
 
 	t.Begin("materialize")
-	matErr := materializeAll(ctx, opts.ProjectDir, all, keys, opts.Materializer, workerCount(opts.Workers), opts.Progress)
+	matErr := materializeAll(ctx, opts.ProjectDir, fetchable, keys, opts.Materializer, workerCount(opts.Workers), opts.Progress)
 	t.End("materialize")
 	if matErr != nil {
 		return matErr

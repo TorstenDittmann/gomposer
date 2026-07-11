@@ -7,8 +7,10 @@ package orchestrator
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/torstendittmann/gomposer/internal/constraint"
+	"github.com/torstendittmann/gomposer/internal/lock"
 	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
@@ -93,4 +95,74 @@ func BuildAggregateManifest(root *manifest.Manifest, workspaces []manifest.Works
 		}
 	}
 	return agg, nil
+}
+
+// workspaceLockPackages builds the synthetic `type: workspace` lock entries
+// grafted onto the production package list. Each workspace becomes a
+// first-class lock entry so the autoloader wires it up and warm re-installs
+// can confirm the workspace directory still exists. Deliberately excludes
+// Require: the resolved dep graph already flowed through the aggregate
+// manifest and is materialized as external packages elsewhere in the lock.
+func workspaceLockPackages(ps *pipelineState) []lock.Package {
+	if len(ps.workspaces) == 0 {
+		return nil
+	}
+	out := make([]lock.Package, 0, len(ps.workspaces))
+	for _, w := range ps.workspaces {
+		url := w.Dir
+		if rel, err := filepath.Rel(ps.opts.ProjectDir, w.Dir); err == nil {
+			url = filepath.ToSlash(rel)
+		}
+		var autoload map[string]any
+		if w.Manifest != nil {
+			autoload = workspaceAutoloadMap(w.Manifest.Autoload)
+		}
+		out = append(out, lock.Package{
+			Name:    w.Name,
+			Version: w.Version,
+			Type:    "workspace",
+			Source: lock.Source{
+				Type: "path",
+				URL:  url,
+			},
+			Autoload: autoload,
+		})
+	}
+	return out
+}
+
+// workspaceAutoloadMap converts a manifest.Autoload (typed, string-keyed)
+// into the loose map[string]any shape lock.Package.Autoload uses — the same
+// shape resolver.autoloadToMap produces from registry.Autoload, but sourced
+// from the manifest package's own Autoload type since workspace packages
+// never pass through the registry.
+func workspaceAutoloadMap(a manifest.Autoload) map[string]any {
+	out := map[string]any{}
+	if len(a.PSR4) > 0 {
+		m := make(map[string]any, len(a.PSR4))
+		for k, v := range a.PSR4 {
+			m[k] = v
+		}
+		out["psr-4"] = m
+	}
+	if len(a.PSR0) > 0 {
+		m := make(map[string]any, len(a.PSR0))
+		for k, v := range a.PSR0 {
+			m[k] = v
+		}
+		out["psr-0"] = m
+	}
+	if len(a.Files) > 0 {
+		out["files"] = a.Files
+	}
+	if len(a.Classmap) > 0 {
+		out["classmap"] = a.Classmap
+	}
+	if len(a.ExcludeFromClassmap) > 0 {
+		out["exclude-from-classmap"] = a.ExcludeFromClassmap
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

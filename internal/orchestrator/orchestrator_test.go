@@ -210,7 +210,11 @@ type fakeAutoloader struct {
 func (a *fakeAutoloader) Generate(_ context.Context, projectDir string, pkgs []lock.Package, m *manifest.Manifest) error {
 	a.called++
 	a.gotPackages = len(pkgs)
-	return os.WriteFile(filepath.Join(projectDir, "vendor", "autoload.php"), []byte("<?php // stub\n"), 0o644)
+	vendorDir := filepath.Join(projectDir, "vendor")
+	if err := os.MkdirAll(vendorDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(vendorDir, "autoload.php"), []byte("<?php // stub\n"), 0o644)
 }
 
 func TestAutoloadPhaseInvokesGenerator(t *testing.T) {
