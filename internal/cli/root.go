@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/torstendittmann/gomposer/internal/manifest"
 )
 
 var (
@@ -49,4 +53,32 @@ func Execute(version string) error {
 		return err
 	}
 	return nil
+}
+
+// findWorkspaceRoot walks up from cwd looking for a composer.json whose
+// parsed Workspaces field is non-empty. Stops at the filesystem root or
+// on entering an ancestor whose own composer.json declares no
+// workspaces AND contains a .git directory (project boundary). Returns
+// (dir, true) on success, ("", false) otherwise.
+func findWorkspaceRoot(cwd string) (string, bool) {
+	cur := cwd
+	for {
+		manifestPath := filepath.Join(cur, "composer.json")
+		if body, err := os.ReadFile(manifestPath); err == nil {
+			var m manifest.Manifest
+			if json.Unmarshal(body, &m) == nil && len(m.Workspaces) > 0 {
+				return cur, true
+			}
+			// Own composer.json without workspaces + .git → project
+			// boundary; don't cross it.
+			if _, err := os.Stat(filepath.Join(cur, ".git")); err == nil {
+				return "", false
+			}
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", false // filesystem root
+		}
+		cur = parent
+	}
 }
