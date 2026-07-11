@@ -49,7 +49,7 @@ Use `-v` on a hand-run install to see where the time is going:
 ./gomposer install -v
 ```
 
-Prints a per-phase timing block (see [CLI reference](./cli.md#verbose-output)). Compare `resolve` (dominated by metadata HTTP round-trips on cold cache) against `fetch` and `materialize` to know where to focus.
+Prints a per-phase timing block (see [Verbose Output](./verbose-output.md)). Compare `resolve` (dominated by metadata HTTP round-trips on cold cache) against `fetch` and `materialize` to know where to focus.
 
 To measure the isolated contribution of each background optimization, disable them:
 

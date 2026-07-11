@@ -25,7 +25,7 @@ Inside a project, gomposer writes:
 
 | Path | Purpose |
 |---|---|
-| `gomposer.lock` | The lockfile. See [Composer compatibility](./composer-compatibility.md) for schema notes. |
+| `gomposer.lock` | The lockfile. See [gomposer.lock](./gomposer-lockfile.md) for schema notes. |
 | `vendor/` | Standard Composer layout. |
 | `vendor/<vendor>/<name>/.composer-go-sha` | Per-package marker that lets the extract phase short-circuit when the target already matches the locked SHA. Safe to delete; the extract will re-run and rewrite it. |
 

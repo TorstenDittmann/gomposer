@@ -1,10 +1,23 @@
 # Summary
 
 - [Introduction](README.md)
-- [Install](install.md)
-- [CLI reference](cli.md)
-- [Composer compatibility](composer-compatibility.md)
-- [Workspaces](workspaces.md)
-- [Cache paths](cache.md)
-- [Benchmarks](benchmarks.md)
-- [Contributing](contributing.md)
+- Getting Started
+    - [Installation](installation.md)
+    - [Quick Start](quick-start.md)
+- Usage
+    - [CLI Reference](cli-reference.md)
+    - [Verbose Output](verbose-output.md)
+    - [Benchmarks](benchmarks.md)
+- Composer Compatibility
+    - [Reading composer.json](reading-composer-json.md)
+    - [Vendor Layout](vendor-layout.md)
+    - [gomposer.lock](gomposer-lockfile.md)
+- Workspaces
+    - [Overview](workspaces.md)
+    - [Declaring Workspaces](workspaces-declaring.md)
+    - [The workspace: Protocol](workspaces-protocol.md)
+    - [Vendor and Symlinks](workspaces-vendor.md)
+    - [Installing](workspaces-install.md)
+- Advanced
+    - [Cache Paths](cache.md)
+    - [Contributing](contributing.md)

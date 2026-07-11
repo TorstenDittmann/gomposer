@@ -1,6 +1,8 @@
-# Install
+# Installation
 
 ## Prebuilt binary (macOS + Linux, amd64 + arm64)
+
+The recommended path. One command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/gomposer/main/install.sh | sh
@@ -10,11 +12,11 @@ The script:
 
 1. Detects your OS (`darwin` / `linux`) and architecture (`amd64` / `arm64`).
 2. Resolves the latest release tag from the GitHub API (or `$GOMPOSER_VERSION` if set).
-3. Downloads the matching `.tar.gz` archive and the `checksums.txt` file.
+3. Downloads the matching `.tar.gz` archive plus the `checksums.txt` file.
 4. Verifies the archive's SHA-256 against the checksum.
 5. Extracts the binary and moves it into `/usr/local/bin/gomposer`, falling back to `$HOME/.local/bin` if the default isn't writable without sudo.
 
-Environment overrides:
+### Environment overrides
 
 | Variable | Effect |
 |---|---|
@@ -42,7 +44,7 @@ Verify with `sha256sum -c`, extract, and drop the `gomposer` binary anywhere on 
 
 - Homebrew tap.
 - Windows build.
-- APT/YUM/pacman packaging.
+- APT / YUM / pacman packaging.
 
 Open an issue if any of these become important to you.
 
@@ -55,4 +57,4 @@ gomposer --version
 gomposer --help
 ```
 
-The version prints `<tag> (commit <short>, built <date>)` for release builds, `dev` for local `go install` builds.
+The version prints `<tag> (commit <short>, built <date>)` for release builds, and `dev` for local `go install` builds.
