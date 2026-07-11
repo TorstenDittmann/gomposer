@@ -430,6 +430,108 @@ func timeInstall(t *testing.T, opts Options) time.Duration {
 	return time.Since(start)
 }
 
+// --- Discovery-driven metadata prefetch: OnVersionDecided wire-through ---
+
+// nameCountingSourceLookup wraps a fixed metadata map and records how many
+// times each package name was looked up. Used to prove resolveFunc's
+// OnVersionDecided callback actually reaches the metadata prefetch pool: a
+// transitive dependency absent from the root manifest can only be looked up
+// twice (once by the pool, once by the resolver itself) if something fed its
+// name to mprefetch.Add() mid-resolve.
+//
+// Distinct from the package-level countingSourceLookup (metadata_prefetch_test.go),
+// which only counts total calls and returns empty metadata; this variant
+// needs per-name counts and real Versions/Require data to drive a full
+// resolve.
+type nameCountingSourceLookup struct {
+	versions map[string]*registry.PackageMetadata
+
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func (s *nameCountingSourceLookup) Lookup(ctx context.Context, name string) (*registry.PackageMetadata, error) {
+	s.mu.Lock()
+	if s.counts == nil {
+		s.counts = map[string]int{}
+	}
+	s.counts[name]++
+	s.mu.Unlock()
+
+	v, ok := s.versions[name]
+	if !ok {
+		return nil, registry.ErrPackageNotFound
+	}
+	return v, nil
+}
+
+func (s *nameCountingSourceLookup) count(name string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.counts[name]
+}
+
+// TestResolveCallbackFeedsMprefetchAdd asserts the wiring added in Task 4:
+// resolveFunc's resolver.Input.OnVersionDecided closure calls
+// ps.mprefetch.Add with the just-decided package's transitive requires.
+//
+// Setup: the root manifest requires only "a/a"; "a/a" in turn requires
+// "b/b", which never appears anywhere in the root manifest or an existing
+// lockfile. collectMetadataPrefetchNames (the initial warm set) therefore
+// never enqueues "b/b" — the *only* way the prefetch pool ever calls
+// Lookup("b/b") is via the discovery-driven Add() path exercised by the
+// OnVersionDecided callback once the resolver commits "a/a".
+//
+// This is a call-count assertion, not a timing one: runFullPipeline's
+// deferred mprefetch.Wait() drains the pool (including anything enqueued via
+// Add) before Install returns, so by the time Install returns, "b/b" has
+// been looked up once by the resolver's own synchronous Lookup and once more
+// by the pool — 2 calls total — if and only if the callback fired and
+// reached Add(). Without the wiring, only the resolver's own call happens
+// (1 call).
+func TestResolveCallbackFeedsMprefetchAdd(t *testing.T) {
+	platform.SetTestPlatform(t, "8.2.0")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	src := &nameCountingSourceLookup{versions: map[string]*registry.PackageMetadata{
+		"a/a": {
+			Name: "a/a",
+			Versions: []registry.PackageVersion{{
+				Name: "a/a", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Require: map[string]string{"b/b": "^1.0"},
+				Dist:    registry.Dist{Type: "zip", URL: "http://fixture/a.zip", Sha: "deadbeef"},
+			}},
+		},
+		"b/b": {
+			Name: "b/b",
+			Versions: []registry.PackageVersion{{
+				Name: "b/b", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Dist: registry.Dist{Type: "zip", URL: "http://fixture/b.zip", Sha: "deadbeef"},
+			}},
+		},
+	}}
+
+	opts := Options{
+		ProjectDir: writeManifestObj(t, &manifest.Manifest{
+			Name:    "acme/app",
+			Require: map[string]string{"a/a": "^1.0"},
+		}),
+		Source:       src,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+	}
+
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if got := src.count("b/b"); got != 2 {
+		t.Errorf("Lookup(%q) called %d times, want 2 (1 from resolver, 1 from OnVersionDecided-driven mprefetch.Add)", "b/b", got)
+	}
+}
+
 // --- Task 4: workspaces pipeline wire-in ---
 
 // TestWorkspacesFullPipelineHappyPath drives Install end-to-end on a tiny
