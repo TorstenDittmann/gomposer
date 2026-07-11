@@ -280,11 +280,13 @@ func TestClientLookupDoesNotCoalesceDifferentNames(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Two distinct names → two /p2/*.json fetches minimum. The client also
-	// asks for /p2/<name>~dev.json which returns 404 or empty; count against
-	// a floor so we don't over-fit to internal client details.
-	if got := reqCount.Load(); got < 2 {
-		t.Errorf("HTTP request count = %d, want at least 2 (different names should not coalesce)", got)
+	// Two distinct names → 4 requests total: each Lookup fires /p2/<name>.json
+	// and /p2/<name>~dev.json. Assert the exact count so a hypothetical
+	// regression that hardcoded the singleflight key (coalescing across ALL
+	// names into one flight) would be caught — that bug would still produce 2
+	// requests, silently passing a floor-only assertion.
+	if got := reqCount.Load(); got != 4 {
+		t.Errorf("HTTP request count = %d, want 4 (different names must not coalesce; 2 names × stable+dev)", got)
 	}
 }
 

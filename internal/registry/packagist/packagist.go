@@ -71,7 +71,11 @@ func New(cfg Config) (*Client, error) {
 // coalesced via singleflight: the first caller's underlying HTTP fetch
 // serves every waiting caller. Callers with different names run
 // independently. Cancellation is contagious — if the leader's context
-// cancels mid-flight, every follower receives the same error. See
+// cancels mid-flight, every follower receives the same error.
+//
+// The returned *PackageMetadata must be treated as read-only. Coalesced
+// callers all receive the same pointer, so any mutation would race with
+// concurrent readers. See
 // docs/superpowers/specs/2026-07-11-inflight-dedup-design.md.
 func (c *Client) Lookup(ctx context.Context, name string) (*registry.PackageMetadata, error) {
 	result, err, _ := c.sf.Do(name, func() (any, error) {
