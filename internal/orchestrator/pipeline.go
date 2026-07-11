@@ -542,6 +542,12 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		return matErr
 	}
 
+	if len(ps.workspaces) > 0 {
+		if err := linkWorkspaces(opts.ProjectDir, ps.workspaces); err != nil {
+			return err
+		}
+	}
+
 	if err := firePhase(ctx, t, scripts.EventPreAutoloadDump, opts, m); err != nil {
 		return err
 	}
