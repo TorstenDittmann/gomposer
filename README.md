@@ -61,6 +61,51 @@ Common flags:
 
 Run `gomposer install --help` for the full list.
 
+## Workspaces (monorepo)
+
+gomposer supports pnpm/bun-style workspaces via a top-level `"workspaces"` array in the root `composer.json`:
+
+```json
+{
+    "name": "acme/monorepo",
+    "workspaces": ["packages/*", "apps/*"]
+}
+```
+
+Every matched directory containing a `composer.json` becomes a workspace. Cross-workspace deps use the `workspace:` protocol:
+
+```json
+{
+    "name": "acme/api",
+    "require": { "acme/shared": "workspace:^1.0" }
+}
+```
+
+`workspace:*` matches the local workspace at any version; `workspace:<constraint>` requires the local workspace's declared `version` to satisfy the constraint (mismatch is a hard error at install time).
+
+`gomposer install` at the repo root — or from any workspace subdirectory, it walks up — resolves every workspace's external deps together and installs into a shared `vendor/` at the repo root. Each workspace gets a `vendor/` symlink to it, and cross-workspace packages become symlinks to their source dirs:
+
+```
+acme-monorepo/
+├── composer.json          # { "workspaces": ["packages/*", "apps/*"] }
+├── vendor/                # real dir; aggregate of every workspace's external deps
+│   └── acme/shared        # symlink → ../../packages/shared
+├── packages/shared/
+│   ├── composer.json
+│   ├── src/
+│   └── vendor             # symlink → ../../vendor
+└── apps/api/
+    ├── composer.json      # requires acme/shared: workspace:^1.0
+    ├── src/
+    └── vendor             # symlink → ../../vendor
+```
+
+Any workspace's own `require __DIR__ . '/../vendor/autoload.php'` bootstrap continues to work — the symlink resolves to the shared install.
+
+Not yet in scope (Scope 2 follow-up): `--filter=<pkg>` for subset installs; `gomposer run <script>` for topologically-ordered script execution across workspaces.
+
+See `docs/superpowers/specs/2026-07-10-workspaces-design.md` for the full design.
+
 ## Composer compatibility
 
 gomposer reads `composer.json` and produces the same `vendor/` layout Composer does, including `vendor/autoload.php`, `vendor/composer/autoload_*.php`, and `vendor/composer/installed.php`. Autoloader coverage includes PSR-4, PSR-0, classmap (token-stream scanner, not regex), files, and `exclude-from-classmap`.

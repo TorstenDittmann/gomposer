@@ -33,6 +33,9 @@ func newInstallCmd() *cobra.Command {
 				}
 				projectDir = wd
 			}
+			if root, ok := findWorkspaceRoot(projectDir); ok {
+				projectDir = root
+			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 			ignored := append([]string(nil), flagIgnorePlatformReqs...)

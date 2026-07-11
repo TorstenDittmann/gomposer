@@ -85,18 +85,33 @@ func collectMetadataPrefetchNames(ps *pipelineState, includeDev bool) []string {
 	if ps == nil || ps.manifest == nil {
 		return nil
 	}
+	// Workspace names are local — never fetched from a registry, whether
+	// they appear in the aggregate manifest's requires (they don't; workspace:
+	// entries are stripped) or in a prior run's lockfile (they do, as
+	// synthetic type=workspace entries).
+	wsNames := map[string]struct{}{}
+	for _, w := range ps.workspaces {
+		wsNames[w.Name] = struct{}{}
+	}
 	seen := map[string]struct{}{}
 	add := func(name string) {
 		if platform.IsPlatformReq(name) {
 			return
 		}
+		if _, ok := wsNames[name]; ok {
+			return
+		}
 		seen[name] = struct{}{}
 	}
-	for name := range ps.manifest.Require {
+	agg := ps.aggregateManifest
+	if agg == nil {
+		agg = ps.manifest
+	}
+	for name := range agg.Require {
 		add(name)
 	}
 	if includeDev {
-		for name := range ps.manifest.RequireDev {
+		for name := range agg.RequireDev {
 			add(name)
 		}
 	}

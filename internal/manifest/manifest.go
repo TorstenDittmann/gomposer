@@ -5,6 +5,8 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 // Manifest is the parsed view of a composer.json file. Fields not yet
@@ -13,6 +15,7 @@ import (
 type Manifest struct {
 	Name             string            `json:"name"`
 	Type             string            `json:"type"`
+	Version          string            `json:"version,omitempty"`
 	Require          map[string]string `json:"require,omitempty"`
 	RequireDev       map[string]string `json:"require-dev,omitempty"`
 	Autoload         Autoload          `json:"autoload,omitempty"`
@@ -36,6 +39,12 @@ type Manifest struct {
 	// composer.json. gomposer reads it for its own namespaced config
 	// (e.g., extra.gomposer.suppress-plugin-warnings).
 	Extra map[string]any `json:"extra,omitempty"`
+
+	// Workspaces is the list of glob patterns declaring workspace directories
+	// under this repo root. When non-empty, this manifest is a workspace root
+	// (bun-flavored monorepo semantics — see docs/superpowers/specs/
+	// 2026-07-10-workspaces-design.md). Empty or absent means single-project.
+	Workspaces []string `json:"workspaces,omitempty"`
 }
 
 // Repository is one entry from composer.json `repositories`. Fields beyond
@@ -78,6 +87,20 @@ func Parse(data []byte) (*Manifest, error) {
 		m.Scripts = scripts
 	}
 	return &m, nil
+}
+
+// Load reads composer.json from dir and parses it. Returns the parsed
+// Manifest or a wrapping error naming the file path.
+func Load(dir string) (*Manifest, error) {
+	body, err := os.ReadFile(filepath.Join(dir, "composer.json"))
+	if err != nil {
+		return nil, fmt.Errorf("manifest: read %s: %w", filepath.Join(dir, "composer.json"), err)
+	}
+	m, err := Parse(body)
+	if err != nil {
+		return nil, fmt.Errorf("manifest: %s: %w", filepath.Join(dir, "composer.json"), err)
+	}
+	return m, nil
 }
 
 // decodeScripts normalizes the per-event JSON body into []string. Accepts:
