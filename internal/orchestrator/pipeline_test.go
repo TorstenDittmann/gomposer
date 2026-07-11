@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/torstendittmann/gomposer/internal/constraint"
 	"github.com/torstendittmann/gomposer/internal/lock"
 	"github.com/torstendittmann/gomposer/internal/manifest"
@@ -336,15 +338,55 @@ func TestMetadataPrefetchCancelsOnCacheHit(t *testing.T) {
 // This is the property maybeStartMetadataPrefetch depends on to be useful at
 // all — warming a name only helps if the warmed result is visible to the
 // resolver's later Lookup call for that same name.
+//
+// Concurrent same-name Lookups are also coalesced via singleflight, mirroring
+// packagist.Client.Lookup's in-flight dedup (see
+// internal/registry/packagist/packagist.go). Without this, sleepySourceLookup
+// only models the "completed lookup" half of the real client's behavior —
+// it can't demonstrate the win from two callers racing to look up the same
+// still-in-flight name (see TestInFlightDedupCoalescesConcurrentSameNameLookups).
+//
+// uncoalesced tracks how many times lookupUncoalesced actually ran per name —
+// i.e. how many cold, non-deduped round-trips the source paid for. This is
+// what proves dedup is doing anything: in a chain-shaped install the pool and
+// the resolver race to Lookup the same name at nearly the same instant, so
+// dedup cannot buy wall-clock time (both callers still wait out the same
+// in-flight request), but it does collapse what would otherwise be two
+// uncoalesced round-trips into one.
 type sleepySourceLookup struct {
 	delay    time.Duration
 	versions map[string]*registry.PackageMetadata
 
 	mu    sync.Mutex
 	cache map[string]*registry.PackageMetadata
+
+	sf singleflight.Group // models packagist.Client's in-flight dedup
+
+	countMu     sync.Mutex
+	uncoalesced map[string]int // count of lookupUncoalesced calls per name
 }
 
 func (s *sleepySourceLookup) Lookup(ctx context.Context, name string) (*registry.PackageMetadata, error) {
+	result, err, _ := s.sf.Do(name, func() (any, error) {
+		return s.lookupUncoalesced(ctx, name)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*registry.PackageMetadata), nil
+}
+
+// lookupUncoalesced is the raw Lookup body without singleflight wrapping.
+// Callers should use Lookup, which coalesces concurrent same-name requests
+// through s.sf.
+func (s *sleepySourceLookup) lookupUncoalesced(ctx context.Context, name string) (*registry.PackageMetadata, error) {
+	s.countMu.Lock()
+	if s.uncoalesced == nil {
+		s.uncoalesced = map[string]int{}
+	}
+	s.uncoalesced[name]++
+	s.countMu.Unlock()
+
 	s.mu.Lock()
 	if v, ok := s.cache[name]; ok {
 		s.mu.Unlock()
@@ -369,6 +411,26 @@ func (s *sleepySourceLookup) Lookup(ctx context.Context, name string) (*registry
 	s.cache[name] = v
 	s.mu.Unlock()
 	return v, nil
+}
+
+// uncoalescedCallsFor returns how many times lookupUncoalesced actually ran
+// for name (as opposed to joining an in-flight call via singleflight).
+func (s *sleepySourceLookup) uncoalescedCallsFor(name string) int {
+	s.countMu.Lock()
+	defer s.countMu.Unlock()
+	return s.uncoalesced[name]
+}
+
+// totalUncoalescedCalls sums uncoalescedCallsFor across every name the
+// source has ever seen.
+func (s *sleepySourceLookup) totalUncoalescedCalls() int {
+	s.countMu.Lock()
+	defer s.countMu.Unlock()
+	total := 0
+	for _, n := range s.uncoalesced {
+		total += n
+	}
+	return total
 }
 
 // fakeMultiPkgManifest returns a root manifest requiring 5 independent leaf
@@ -542,16 +604,19 @@ func TestResolveCallbackFeedsMprefetchAdd(t *testing.T) {
 // The fixture is a fan-out, not a chain: acme/root requires all of
 // acme/{a,b,c,d,e} directly, and none of those five have further requires.
 // A serial chain (a -> b -> c -> d -> e) cannot demonstrate discovery-driven
-// prefetch's benefit here: the pool's Lookup(b) and the resolver's own
-// Lookup(b) both fire the instant a is decided, so they race for the same
-// cold Lookup with no in-flight dedup at the fetch layer (sleepySourceLookup
-// only caches a *completed* Lookup; it doesn't join a request already in
-// flight) — both pay the full 80ms, identical to no prefetch at all, and
-// that repeats at every link. A fan-out sidesteps that: the resolver's
-// serial walk only races the pool once, on the first sibling (acme/a); by
-// the time it reaches acme/b, acme/c, acme/d, acme/e, the pool's
-// already-dispatched (and by then mostly finished) parallel Lookups for
-// those names have warmed the source's cache.
+// prefetch's *wall-time* benefit here even with in-flight dedup wired up
+// (sleepySourceLookup.Lookup now joins an already in-flight call via
+// singleflight — see its doc comment): the pool's Lookup(b) and the
+// resolver's own Lookup(b) both fire the instant a is decided, so whichever
+// arrives second still just joins the first's still-in-flight 80ms wait —
+// both pay the full 80ms wall-clock, identical to no prefetch at all, and
+// that repeats at every link (dedup does cut round-trips here, see
+// TestInFlightDedupCoalescesConcurrentSameNameLookups, just not wall time).
+// A fan-out sidesteps that: the resolver's serial walk only races the pool
+// once, on the first sibling (acme/a); by the time it reaches acme/b,
+// acme/c, acme/d, acme/e, the pool's already-dispatched (and by then mostly
+// finished) parallel Lookups for those names have warmed the source's
+// cache.
 func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing-sensitive; skipping under -short")
@@ -629,6 +694,77 @@ func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
 
 	if want := tBaseline * 7 / 10; tPrefetch >= want {
 		t.Errorf("discovery-driven prefetch speedup below expected margin: baseline=%v prefetch=%v, want prefetch < %v (70%% of baseline)", tBaseline, tPrefetch, want)
+	}
+}
+
+// TestInFlightDedupCoalescesConcurrentSameNameLookups exercises the end-to-
+// end dedup wire-in. On a chain install with discovery-driven metadata
+// prefetch on, the pool and the resolver race to Lookup the same package
+// names: as soon as a parent in the chain is decided, OnVersionDecided feeds
+// its child to the pool, and the resolver's own Lookup for that same child
+// fires within microseconds of the pool's. Neither caller has a head start,
+// so dedup buys no wall-clock time here (see the doc comment on
+// sleepySourceLookup) — but it does mean the source only pays for one
+// uncoalesced round-trip per name instead of two.
+//
+// Chain: root -> a -> b -> c -> d -> e. Six unique names. Without dedup
+// engaging, each name would see up to 2 uncoalesced calls (one from the pool,
+// one from the resolver) for up to 12 total. With dedup, each unique name's
+// uncoalesced body should run exactly once, for 6 total.
+func TestInFlightDedupCoalescesConcurrentSameNameLookups(t *testing.T) {
+	platform.SetTestPlatform(t, "8.2.0")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	names := []string{"root", "a", "b", "c", "d", "e"}
+	chain := map[string]*registry.PackageMetadata{}
+	for i, leaf := range names {
+		name := "acme/" + leaf
+		require := map[string]string{}
+		if i+1 < len(names) {
+			require["acme/"+names[i+1]] = "^1.0"
+		}
+		chain[name] = &registry.PackageMetadata{
+			Name: name,
+			Versions: []registry.PackageVersion{{
+				Name:        name,
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Require:     require,
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-" + leaf + ".zip", Sha: "deadbeef"},
+			}},
+		}
+	}
+	src := &sleepySourceLookup{delay: 20 * time.Millisecond, versions: chain}
+
+	opts := Options{
+		ProjectDir: writeManifestObj(t, &manifest.Manifest{
+			Name:    "acme/app",
+			Require: map[string]string{"acme/root": "^1.0"},
+		}),
+		Source:             src,
+		Fetcher:            &fakeFetcher{},
+		Materializer:       &fakeMaterializer{},
+		Autoloader:         &fakeAutoloader{},
+		NoScripts:          true,
+		NoPrefetch:         true, // artifact prefetch off — isolate metadata prefetch
+		NoMetadataPrefetch: false,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	total := src.totalUncoalescedCalls()
+	const unique = 6 // root, a, b, c, d, e
+	// With dedup engaging on every same-name race, we expect each name to
+	// run its uncoalesced body exactly once. Allow one extra as a safety
+	// margin (e.g. if a follower arrives just as the leader completes and
+	// misses the singleflight window by a hair).
+	if total > unique+1 {
+		t.Errorf("total uncoalesced Lookups = %d, want <= %d (chain has %d unique names; dedup should collapse concurrent same-name calls to 1 each)",
+			total, unique+1, unique)
+	}
+	if total < unique {
+		t.Errorf("total uncoalesced Lookups = %d, want >= %d (fewer than unique names means a name was never looked up)", total, unique)
 	}
 }
 
