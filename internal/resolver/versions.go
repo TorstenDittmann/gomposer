@@ -31,6 +31,10 @@ type versionLister struct {
 	platform           *platform.Platform
 	ignorePlatformReqs map[string]bool
 	strictPlatform     bool
+
+	// onDecided, when non-nil, is invoked by decide() every time a version
+	// is committed to the partial solution. Wired from Input.OnVersionDecided.
+	onDecided func(pkgName string, requires map[string]string)
 }
 
 func newVersionLister(src registry.SourceLookup, minStability string) *versionLister {

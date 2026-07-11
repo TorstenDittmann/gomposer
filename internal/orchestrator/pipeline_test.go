@@ -430,7 +430,207 @@ func timeInstall(t *testing.T, opts Options) time.Duration {
 	return time.Since(start)
 }
 
+// --- Discovery-driven metadata prefetch: OnVersionDecided wire-through ---
+
+// nameCountingSourceLookup wraps a fixed metadata map and records how many
+// times each package name was looked up. Used to prove resolveFunc's
+// OnVersionDecided callback actually reaches the metadata prefetch pool: a
+// transitive dependency absent from the root manifest can only be looked up
+// twice (once by the pool, once by the resolver itself) if something fed its
+// name to mprefetch.Add() mid-resolve.
+//
+// Distinct from the package-level countingSourceLookup (metadata_prefetch_test.go),
+// which only counts total calls and returns empty metadata; this variant
+// needs per-name counts and real Versions/Require data to drive a full
+// resolve.
+type nameCountingSourceLookup struct {
+	versions map[string]*registry.PackageMetadata
+
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func (s *nameCountingSourceLookup) Lookup(ctx context.Context, name string) (*registry.PackageMetadata, error) {
+	s.mu.Lock()
+	if s.counts == nil {
+		s.counts = map[string]int{}
+	}
+	s.counts[name]++
+	s.mu.Unlock()
+
+	v, ok := s.versions[name]
+	if !ok {
+		return nil, registry.ErrPackageNotFound
+	}
+	return v, nil
+}
+
+func (s *nameCountingSourceLookup) count(name string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.counts[name]
+}
+
+// TestResolveCallbackFeedsMprefetchAdd asserts the wiring added in Task 4:
+// resolveFunc's resolver.Input.OnVersionDecided closure calls
+// ps.mprefetch.Add with the just-decided package's transitive requires.
+//
+// Setup: the root manifest requires only "a/a"; "a/a" in turn requires
+// "b/b", which never appears anywhere in the root manifest or an existing
+// lockfile. collectMetadataPrefetchNames (the initial warm set) therefore
+// never enqueues "b/b" — the *only* way the prefetch pool ever calls
+// Lookup("b/b") is via the discovery-driven Add() path exercised by the
+// OnVersionDecided callback once the resolver commits "a/a".
+//
+// This is a call-count assertion, not a timing one: runFullPipeline's
+// deferred mprefetch.Wait() drains the pool (including anything enqueued via
+// Add) before Install returns, so by the time Install returns, "b/b" has
+// been looked up once by the resolver's own synchronous Lookup and once more
+// by the pool — 2 calls total — if and only if the callback fired and
+// reached Add(). Without the wiring, only the resolver's own call happens
+// (1 call).
+func TestResolveCallbackFeedsMprefetchAdd(t *testing.T) {
+	platform.SetTestPlatform(t, "8.2.0")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	src := &nameCountingSourceLookup{versions: map[string]*registry.PackageMetadata{
+		"a/a": {
+			Name: "a/a",
+			Versions: []registry.PackageVersion{{
+				Name: "a/a", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Require: map[string]string{"b/b": "^1.0"},
+				Dist:    registry.Dist{Type: "zip", URL: "http://fixture/a.zip", Sha: "deadbeef"},
+			}},
+		},
+		"b/b": {
+			Name: "b/b",
+			Versions: []registry.PackageVersion{{
+				Name: "b/b", Version: "1.0.0", VersionNorm: "1.0.0.0",
+				Dist: registry.Dist{Type: "zip", URL: "http://fixture/b.zip", Sha: "deadbeef"},
+			}},
+		},
+	}}
+
+	opts := Options{
+		ProjectDir: writeManifestObj(t, &manifest.Manifest{
+			Name:    "acme/app",
+			Require: map[string]string{"a/a": "^1.0"},
+		}),
+		Source:       src,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+	}
+
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	if got := src.count("b/b"); got != 2 {
+		t.Errorf("Lookup(%q) called %d times, want 2 (1 from resolver, 1 from OnVersionDecided-driven mprefetch.Add)", "b/b", got)
+	}
+}
+
 // --- Task 4: workspaces pipeline wire-in ---
+
+// TestMetadataPrefetchWarmTransitivesOnFreshInstall asserts Scope C:
+// on a fresh install with no lock, transitive requires get prefetched
+// as the solver commits versions, so total wall time is lower than
+// with metadata prefetch disabled entirely.
+//
+// The fixture is a fan-out, not a chain: acme/root requires all of
+// acme/{a,b,c,d,e} directly, and none of those five have further requires.
+// A serial chain (a -> b -> c -> d -> e) cannot demonstrate discovery-driven
+// prefetch's benefit here: the pool's Lookup(b) and the resolver's own
+// Lookup(b) both fire the instant a is decided, so they race for the same
+// cold Lookup with no in-flight dedup at the fetch layer (sleepySourceLookup
+// only caches a *completed* Lookup; it doesn't join a request already in
+// flight) — both pay the full 80ms, identical to no prefetch at all, and
+// that repeats at every link. A fan-out sidesteps that: the resolver's
+// serial walk only races the pool once, on the first sibling (acme/a); by
+// the time it reaches acme/b, acme/c, acme/d, acme/e, the pool's
+// already-dispatched (and by then mostly finished) parallel Lookups for
+// those names have warmed the source's cache.
+func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing-sensitive; skipping under -short")
+	}
+	platform.SetTestPlatform(t, "8.2.0")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	chain := map[string]*registry.PackageMetadata{
+		"acme/root": {
+			Name: "acme/root",
+			Versions: []registry.PackageVersion{{
+				Name:        "acme/root",
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Require: map[string]string{
+					"acme/a": "^1.0",
+					"acme/b": "^1.0",
+					"acme/c": "^1.0",
+					"acme/d": "^1.0",
+					"acme/e": "^1.0",
+				},
+				Dist: registry.Dist{Type: "zip", URL: "http://fixture/acme-root.zip", Sha: "deadbeef"},
+			}},
+		},
+	}
+	for _, leaf := range []string{"a", "b", "c", "d", "e"} {
+		name := "acme/" + leaf
+		chain[name] = &registry.PackageMetadata{
+			Name: name,
+			Versions: []registry.PackageVersion{{
+				Name:        name,
+				Version:     "1.0.0",
+				VersionNorm: "1.0.0.0",
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-" + leaf + ".zip", Sha: "deadbeef"},
+			}},
+		}
+	}
+
+	baseOpts := func() Options {
+		return Options{
+			ProjectDir: writeManifestObj(t, &manifest.Manifest{
+				Name:    "acme/app",
+				Require: map[string]string{"acme/root": "^1.0"},
+			}),
+			Source:       &sleepySourceLookup{delay: 80 * time.Millisecond, versions: chain},
+			Fetcher:      &fakeFetcher{},
+			Materializer: &fakeMaterializer{},
+			Autoloader:   &fakeAutoloader{},
+			NoScripts:    true,
+			NoPrefetch:   true, // artifact prefetch off — isolate metadata prefetch
+		}
+	}
+
+	// Baseline: no metadata prefetch. Resolver walks root -> a -> b -> c ->
+	// d -> e serially: 6 cold Lookups x 80ms = 480ms.
+	base := baseOpts()
+	base.NoMetadataPrefetch = true
+	tBaseline := timeInstall(t, base)
+
+	// Fresh cache for the prefetch run.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	// With discovery-driven prefetch (default on): the initial warm set is
+	// {acme/root} (the root manifest's direct require), so deciding root
+	// still costs a full 80ms — nothing can prefetch it earlier. Once root
+	// is decided, OnVersionDecided feeds {a,b,c,d,e} to the pool in one
+	// batch, dispatching all five in parallel; the resolver's own serial
+	// walk through them then mostly rides the pool's concurrent (or
+	// already-finished) Lookups instead of paying for its own. Expected:
+	// ~80ms (root) + ~80ms (acme/a, races the pool) + near-zero for the
+	// remaining four ~= 160ms, comfortably under 70% of the 480ms baseline.
+	on := baseOpts()
+	on.NoMetadataPrefetch = false
+	tPrefetch := timeInstall(t, on)
+
+	if want := tBaseline * 7 / 10; tPrefetch >= want {
+		t.Errorf("discovery-driven prefetch speedup below expected margin: baseline=%v prefetch=%v, want prefetch < %v (70%% of baseline)", tBaseline, tPrefetch, want)
+	}
+}
 
 // TestWorkspacesFullPipelineHappyPath drives Install end-to-end on a tiny
 // monorepo (root + two workspaces, one depending on the other via the

@@ -87,6 +87,14 @@ type pipelineState struct {
 	// union of root + every workspace's external requires, workspace:
 	// entries stripped. Equal to manifest when workspaces is empty.
 	aggregateManifest *manifest.Manifest
+
+	// mprefetch is the metadata prefetch pool, populated in runFullPipeline
+	// right after maybeStartMetadataPrefetch runs. nil in test seams (e.g.
+	// resolveOnly) that never call maybeStartMetadataPrefetch; resolveFunc
+	// guards against nil before touching it. Add is also safe to call on a
+	// noop *MetadataPrefetcher, so this field being a noop instance (vs.
+	// nil) behaves identically.
+	mprefetch *MetadataPrefetcher
 }
 
 func newPipelineState(opts Options, m *manifest.Manifest) (*pipelineState, error) {
@@ -173,6 +181,23 @@ var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.Sour
 		// keeps incompatible versions in the candidate pool and reports
 		// warnings post-resolution.
 		StrictPlatform: ps.opts.NoDev,
+		// OnVersionDecided feeds each just-committed version's transitive
+		// requires to the metadata prefetch pool so their Lookups start
+		// concurrently with the resolver still deciding earlier packages,
+		// instead of serially after resolution finishes. ps.mprefetch is nil
+		// in test seams that skip maybeStartMetadataPrefetch (e.g.
+		// resolveOnly); Add is also a no-op on a noop instance, so this is
+		// belt-and-suspenders.
+		OnVersionDecided: func(_ string, reqs map[string]string) {
+			if ps.mprefetch == nil || len(reqs) == 0 {
+				return
+			}
+			names := make([]string, 0, len(reqs))
+			for name := range reqs {
+				names = append(names, name)
+			}
+			ps.mprefetch.Add(names)
+		},
 	})
 }
 
@@ -440,6 +465,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	// are recorded into Timings from the same deferred call, but only when
 	// the resolver actually consumed the pool's work — see resolverUsedCache.
 	mprefetch := maybeStartMetadataPrefetch(ctx, ps, opts)
+	ps.mprefetch = mprefetch
 	var resolverUsedCache bool
 	defer func() {
 		mprefetch.Wait()

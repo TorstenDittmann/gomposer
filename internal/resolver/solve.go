@@ -48,6 +48,15 @@ type Input struct {
 	PlatformFingerprint string
 	// MinimumStability defaults to "stable" if empty.
 	MinimumStability string
+
+	// OnVersionDecided, when non-nil, fires from decide() every time a
+	// version is committed to the partial solution. The orchestrator uses
+	// this to dispatch the just-decided version's transitive requires to a
+	// background metadata prefetch pool.
+	//
+	// Called synchronously from decide(); implementations must return
+	// quickly. No first-seen dedup here — the callback fires every time.
+	OnVersionDecided func(pkgName string, requires map[string]string)
 }
 
 // Solve runs the PubGrub loop and returns the resolution Result. On failure
@@ -68,6 +77,7 @@ func Solve(ctx context.Context, in Input) (*Result, error) {
 	vl.platform = in.Platform
 	vl.ignorePlatformReqs = in.IgnorePlatformReqs
 	vl.strictPlatform = in.StrictPlatform
+	vl.onDecided = in.OnVersionDecided
 
 	// Stability flags: explicit "dev-<branch>" requires admit that branch
 	// regardless of minStab. A per-require suffix (e.g. `^2.0@RC`) lowers

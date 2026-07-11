@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/torstendittmann/gomposer/internal/manifest"
@@ -299,5 +300,62 @@ func TestSolveDeterministic(t *testing.T) {
 			r1.Packages[i].Version.Original != r2.Packages[i].Version.Original {
 			t.Errorf("non-deterministic at %d: %+v vs %+v", i, r1.Packages[i], r2.Packages[i])
 		}
+	}
+}
+
+func TestSolveFiresOnVersionDecidedForEveryCommit(t *testing.T) {
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"a/a": {testlookup.Pkg("a/a", "1.0.0", map[string]string{"b/b": "^1.0"})},
+		"b/b": {testlookup.Pkg("b/b", "1.0.0", nil)},
+	})
+	m := &manifest.Manifest{
+		Name:    "user/app",
+		Require: map[string]string{"a/a": "^1.0"},
+	}
+
+	var mu sync.Mutex
+	seen := map[string]map[string]string{}
+	res, err := Solve(context.Background(), Input{
+		Manifest: m,
+		Source:   src,
+		OnVersionDecided: func(name string, requires map[string]string) {
+			mu.Lock()
+			defer mu.Unlock()
+			// Copy the map — the resolver may reuse the underlying map.
+			cp := make(map[string]string, len(requires))
+			for k, v := range requires {
+				cp[k] = v
+			}
+			seen[name] = cp
+		},
+	})
+	if err != nil {
+		t.Fatalf("Solve: %v", err)
+	}
+	if len(res.Packages) != 2 {
+		t.Fatalf("Packages = %d, want 2", len(res.Packages))
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if _, ok := seen["a/a"]; !ok {
+		t.Errorf("callback never fired for a/a; seen = %v", seen)
+	}
+	if _, ok := seen["b/b"]; !ok {
+		t.Errorf("callback never fired for b/b; seen = %v", seen)
+	}
+	if len(seen["a/a"]) != 1 || seen["a/a"]["b/b"] != "^1.0" {
+		t.Errorf("callback for a/a saw requires = %v, want {b/b: ^1.0}", seen["a/a"])
+	}
+}
+
+func TestSolveTolerateNilOnVersionDecided(t *testing.T) {
+	// Sanity: nil callback is the existing behavior; must not panic.
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"a/a": {testlookup.Pkg("a/a", "1.0.0", nil)},
+	})
+	m := &manifest.Manifest{Name: "user/app", Require: map[string]string{"a/a": "^1.0"}}
+	if _, err := Solve(context.Background(), Input{Manifest: m, Source: src}); err != nil {
+		t.Fatalf("Solve with nil callback: %v", err)
 	}
 }
