@@ -11,7 +11,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/torstendittmann/gomposer/internal/lock"
+	"github.com/torstendittmann/gomposer/internal/manifest"
 	"github.com/torstendittmann/gomposer/internal/platform"
+	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
 // MetadataPrefetcher is the runtime handle returned by
@@ -29,6 +31,15 @@ type MetadataPrefetcher struct {
 	wg     sync.WaitGroup
 	stats  prefetchStats
 	cancel context.CancelFunc
+
+	// Hoisted from the maybeStart goroutine so Add() can reuse them.
+	// Zero-valued on the noop instance; Add short-circuits on g == nil.
+	g       *errgroup.Group
+	ctx     context.Context
+	source  registry.SourceLookup
+	wsNames map[string]struct{}
+	seenMu  sync.Mutex
+	seen    map[string]struct{}
 }
 
 // prefetchStats records the outcome the verbose timing block surfaces.
@@ -145,6 +156,7 @@ func maybeStartMetadataPrefetch(ctx context.Context, ps *pipelineState, opts Opt
 	if len(names) == 0 {
 		return newNoopMetadataPrefetcher()
 	}
+
 	// A separately created cancellable context sits in front of
 	// errgroup.WithContext so Cancel() can abort every in-flight Lookup
 	// without waiting for a g.Go closure to return an error. Both are
@@ -152,7 +164,28 @@ func maybeStartMetadataPrefetch(ctx context.Context, ps *pipelineState, opts Opt
 	// hold a reference to cancel.
 	cancelCtx, cancel := context.WithCancel(ctx)
 	g, gctx := errgroup.WithContext(cancelCtx)
-	p := &MetadataPrefetcher{cancel: cancel}
+	g.SetLimit(workerCount(opts.Workers))
+
+	// Seed the seen set with the initial warm set so discovery-driven
+	// Add() calls don't re-enqueue what A/B already fired.
+	seen := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		seen[n] = struct{}{}
+	}
+
+	// Workspace name set for Add's filter. collectMetadataPrefetchNames
+	// already excluded workspace names from the initial set, but
+	// discovery-driven callers pass arbitrary require maps.
+	wsNames := workspaceNameSet(ps.workspaces)
+
+	p := &MetadataPrefetcher{
+		cancel:  cancel,
+		g:       g,
+		ctx:     gctx,
+		source:  opts.Source,
+		wsNames: wsNames,
+		seen:    seen,
+	}
 	p.wg.Add(1)
 	start := time.Now()
 	go func() {
@@ -161,7 +194,6 @@ func maybeStartMetadataPrefetch(ctx context.Context, ps *pipelineState, opts Opt
 		// finished naturally or was aborted via Cancel(). cancel is
 		// idempotent, so this never races with an external Cancel() call.
 		defer cancel()
-		g.SetLimit(workerCount(opts.Workers))
 		for _, name := range names {
 			name := name
 			g.Go(func() error {
@@ -180,4 +212,15 @@ func maybeStartMetadataPrefetch(ctx context.Context, ps *pipelineState, opts Opt
 		p.stats.mu.Unlock()
 	}()
 	return p
+}
+
+// workspaceNameSet returns a lookup set of workspace names, or an empty
+// non-nil map when the project has no workspaces. Used by Add() to
+// filter out workspace names surfaced through OnVersionDecided.
+func workspaceNameSet(ws []manifest.Workspace) map[string]struct{} {
+	out := make(map[string]struct{}, len(ws))
+	for _, w := range ws {
+		out[w.Name] = struct{}{}
+	}
+	return out
 }

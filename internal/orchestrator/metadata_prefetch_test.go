@@ -213,6 +213,29 @@ func TestMetadataPrefetcherCancelIsSafeOnNoop(t *testing.T) {
 	p.Wait()
 }
 
+func TestMaybeStartMetadataPrefetchSeedsSeenWithInitialWarmSet(t *testing.T) {
+	// After maybeStart returns, every name in the initial warm set must
+	// be present in seen so a future Add doesn't re-enqueue them.
+	src := newFakeSourceLookup()
+	ps := &pipelineState{
+		manifest: &manifest.Manifest{
+			Require: map[string]string{"a/a": "^1", "b/b": "^1"},
+		},
+	}
+	opts := Options{Source: src}
+	p := maybeStartMetadataPrefetch(context.Background(), ps, opts)
+	p.Wait()
+
+	p.seenMu.Lock()
+	defer p.seenMu.Unlock()
+	if _, ok := p.seen["a/a"]; !ok {
+		t.Errorf("seen missing a/a: %v", p.seen)
+	}
+	if _, ok := p.seen["b/b"]; !ok {
+		t.Errorf("seen missing b/b: %v", p.seen)
+	}
+}
+
 // blockingSourceLookup blocks every Lookup call until its context is
 // cancelled, then reports ctx.Err(). Used to assert that Cancel() actually
 // unblocks in-flight prefetch workers rather than merely being ignored.
