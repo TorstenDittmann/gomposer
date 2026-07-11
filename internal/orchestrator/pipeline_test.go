@@ -538,6 +538,20 @@ func TestResolveCallbackFeedsMprefetchAdd(t *testing.T) {
 // on a fresh install with no lock, transitive requires get prefetched
 // as the solver commits versions, so total wall time is lower than
 // with metadata prefetch disabled entirely.
+//
+// The fixture is a fan-out, not a chain: acme/root requires all of
+// acme/{a,b,c,d,e} directly, and none of those five have further requires.
+// A serial chain (a -> b -> c -> d -> e) cannot demonstrate discovery-driven
+// prefetch's benefit here: the pool's Lookup(b) and the resolver's own
+// Lookup(b) both fire the instant a is decided, so they race for the same
+// cold Lookup with no in-flight dedup at the fetch layer (sleepySourceLookup
+// only caches a *completed* Lookup; it doesn't join a request already in
+// flight) — both pay the full 80ms, identical to no prefetch at all, and
+// that repeats at every link. A fan-out sidesteps that: the resolver's
+// serial walk only races the pool once, on the first sibling (acme/a); by
+// the time it reaches acme/b, acme/c, acme/d, acme/e, the pool's
+// already-dispatched (and by then mostly finished) parallel Lookups for
+// those names have warmed the source's cache.
 func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing-sensitive; skipping under -short")
@@ -545,67 +559,42 @@ func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
 	platform.SetTestPlatform(t, "8.2.0")
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	// Chain: acme/a -> acme/b -> acme/c -> acme/d -> acme/e, each takes 80ms on first Lookup.
-	// Root only requires acme/a; acme/b/c/d/e are pure transitives that only
-	// discovery-driven prefetch can warm during resolution.
 	chain := map[string]*registry.PackageMetadata{
-		"acme/a": {
-			Name: "acme/a",
+		"acme/root": {
+			Name: "acme/root",
 			Versions: []registry.PackageVersion{{
-				Name:        "acme/a",
+				Name:        "acme/root",
 				Version:     "1.0.0",
 				VersionNorm: "1.0.0.0",
-				Require:     map[string]string{"acme/b": "^1.0"},
-				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-a.zip", Sha: "deadbeef"},
+				Require: map[string]string{
+					"acme/a": "^1.0",
+					"acme/b": "^1.0",
+					"acme/c": "^1.0",
+					"acme/d": "^1.0",
+					"acme/e": "^1.0",
+				},
+				Dist: registry.Dist{Type: "zip", URL: "http://fixture/acme-root.zip", Sha: "deadbeef"},
 			}},
 		},
-		"acme/b": {
-			Name: "acme/b",
+	}
+	for _, leaf := range []string{"a", "b", "c", "d", "e"} {
+		name := "acme/" + leaf
+		chain[name] = &registry.PackageMetadata{
+			Name: name,
 			Versions: []registry.PackageVersion{{
-				Name:        "acme/b",
+				Name:        name,
 				Version:     "1.0.0",
 				VersionNorm: "1.0.0.0",
-				Require:     map[string]string{"acme/c": "^1.0"},
-				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-b.zip", Sha: "deadbeef"},
+				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-" + leaf + ".zip", Sha: "deadbeef"},
 			}},
-		},
-		"acme/c": {
-			Name: "acme/c",
-			Versions: []registry.PackageVersion{{
-				Name:        "acme/c",
-				Version:     "1.0.0",
-				VersionNorm: "1.0.0.0",
-				Require:     map[string]string{"acme/d": "^1.0"},
-				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-c.zip", Sha: "deadbeef"},
-			}},
-		},
-		"acme/d": {
-			Name: "acme/d",
-			Versions: []registry.PackageVersion{{
-				Name:        "acme/d",
-				Version:     "1.0.0",
-				VersionNorm: "1.0.0.0",
-				Require:     map[string]string{"acme/e": "^1.0"},
-				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-d.zip", Sha: "deadbeef"},
-			}},
-		},
-		"acme/e": {
-			Name: "acme/e",
-			Versions: []registry.PackageVersion{{
-				Name:        "acme/e",
-				Version:     "1.0.0",
-				VersionNorm: "1.0.0.0",
-				Require:     nil,
-				Dist:        registry.Dist{Type: "zip", URL: "http://fixture/acme-e.zip", Sha: "deadbeef"},
-			}},
-		},
+		}
 	}
 
 	baseOpts := func() Options {
 		return Options{
-			ProjectDir:   writeManifestObj(t, &manifest.Manifest{
+			ProjectDir: writeManifestObj(t, &manifest.Manifest{
 				Name:    "acme/app",
-				Require: map[string]string{"acme/a": "^1.0"},
+				Require: map[string]string{"acme/root": "^1.0"},
 			}),
 			Source:       &sleepySourceLookup{delay: 80 * time.Millisecond, versions: chain},
 			Fetcher:      &fakeFetcher{},
@@ -616,7 +605,8 @@ func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
 		}
 	}
 
-	// Baseline: no metadata prefetch.
+	// Baseline: no metadata prefetch. Resolver walks root -> a -> b -> c ->
+	// d -> e serially: 6 cold Lookups x 80ms = 480ms.
 	base := baseOpts()
 	base.NoMetadataPrefetch = true
 	tBaseline := timeInstall(t, base)
@@ -624,13 +614,21 @@ func TestMetadataPrefetchWarmTransitivesOnFreshInstall(t *testing.T) {
 	// Fresh cache for the prefetch run.
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	// With discovery-driven prefetch (default on).
+	// With discovery-driven prefetch (default on): the initial warm set is
+	// {acme/root} (the root manifest's direct require), so deciding root
+	// still costs a full 80ms — nothing can prefetch it earlier. Once root
+	// is decided, OnVersionDecided feeds {a,b,c,d,e} to the pool in one
+	// batch, dispatching all five in parallel; the resolver's own serial
+	// walk through them then mostly rides the pool's concurrent (or
+	// already-finished) Lookups instead of paying for its own. Expected:
+	// ~80ms (root) + ~80ms (acme/a, races the pool) + near-zero for the
+	// remaining four ~= 160ms, comfortably under 70% of the 480ms baseline.
 	on := baseOpts()
 	on.NoMetadataPrefetch = false
 	tPrefetch := timeInstall(t, on)
 
-	if tPrefetch >= tBaseline {
-		t.Errorf("discovery-driven prefetch did not speed up install: baseline=%v prefetch=%v", tBaseline, tPrefetch)
+	if want := tBaseline * 7 / 10; tPrefetch >= want {
+		t.Errorf("discovery-driven prefetch speedup below expected margin: baseline=%v prefetch=%v, want prefetch < %v (70%% of baseline)", tBaseline, tPrefetch, want)
 	}
 }
 
