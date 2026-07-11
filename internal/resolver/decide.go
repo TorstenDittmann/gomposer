@@ -104,6 +104,9 @@ func decide(
 
 	// 7. Commit the decision.
 	ps.Decide(chosen.pkg, pick.Parsed)
+	if vl.onDecided != nil {
+		vl.onDecided(pick.Record.Name, pick.Record.Require)
+	}
 	return decideMade, chosen.pkg, nil
 }
 
