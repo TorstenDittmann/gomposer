@@ -50,7 +50,16 @@ func (p *Prefetcher) Wait() {
 // based on opts and the parsed pipeline state. It returns a non-nil
 // *Prefetcher in every branch — callers can Wait() unconditionally without
 // nil-checking. When prefetch is skipped, the returned Prefetcher's Wait
-// is a no-op.
+// is a no-op and the returned ticker is nil.
+//
+// When prefetch starts, maybeStartPrefetch opens the fetching progress
+// phase (BeginFetch with the exact package count) and returns the shared
+// fetchTicker that fetchAll must route its increments through. The phase
+// MUST open before startPrefetch dispatches workers: a worker can
+// complete a fetch (and tick) immediately, and a tick landing before
+// BeginFetch would be zeroed by the renderer's beginPhase. The announced
+// total is exact because prefetch only runs when the lockfile is trusted
+// verbatim — fetchAll later receives exactly these packages.
 //
 // Skip conditions:
 //   - forceResolve (update path): we have no reason to trust the lock.
@@ -59,18 +68,24 @@ func (p *Prefetcher) Wait() {
 //   - len(ps.lockBytes) == 0: no lockfile to be confident in.
 //   - lock.Decode fails: corrupt lock; fall back to resolver.
 //   - opts.Fetcher == nil: defensive (defaultDeps wiring failure).
-func maybeStartPrefetch(ctx context.Context, ps *pipelineState, opts Options, forceResolve bool) *Prefetcher {
+func maybeStartPrefetch(ctx context.Context, ps *pipelineState, opts Options, forceResolve bool) (*Prefetcher, *fetchTicker) {
 	if forceResolve || opts.NoNetwork || opts.NoPrefetch {
-		return &Prefetcher{}
+		return &Prefetcher{}, nil
 	}
 	if len(ps.lockBytes) == 0 || opts.Fetcher == nil {
-		return &Prefetcher{}
+		return &Prefetcher{}, nil
 	}
 	lf, err := lock.Decode(ps.lockBytes)
 	if err != nil {
-		return &Prefetcher{}
+		return &Prefetcher{}, nil
 	}
-	return startPrefetch(ctx, prefetchPackages(lf, !opts.NoDev), opts.Fetcher, workerCount(opts.Workers), nil)
+	pkgs := prefetchPackages(lf, !opts.NoDev)
+	if len(pkgs) == 0 {
+		return &Prefetcher{}, nil
+	}
+	ticker := newFetchTicker(opts.Progress)
+	ticker.prog.BeginFetch(len(pkgs))
+	return startPrefetch(ctx, pkgs, opts.Fetcher, workerCount(opts.Workers), ticker.tick), ticker
 }
 
 // prefetchPackages builds the speculative download list from a decoded
