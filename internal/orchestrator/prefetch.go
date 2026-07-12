@@ -70,33 +70,43 @@ func maybeStartPrefetch(ctx context.Context, ps *pipelineState, opts Options, fo
 	if err != nil {
 		return &Prefetcher{}
 	}
-	return startPrefetch(ctx, lf, opts.Fetcher, !opts.NoDev, workerCount(opts.Workers))
+	return startPrefetch(ctx, prefetchPackages(lf, !opts.NoDev), opts.Fetcher, workerCount(opts.Workers), nil)
 }
 
-// startPrefetch begins downloading every package in lf using f. Errors are
-// intentionally swallowed: the resolver pass is the authoritative gate, and
-// any genuine missing-package or network failure will surface there with
-// the right error message.
-//
-// includeDev mirrors the orchestrator's `!opts.NoDev` flag so we don't waste
-// bandwidth on require-dev packages that won't be installed.
-//
-// limit caps in-flight downloads. Pass <=0 for runtime.NumCPU().
-func startPrefetch(ctx context.Context, lf *lock.File, f Fetcher, includeDev bool, limit int) *Prefetcher {
-	if lf == nil || f == nil {
-		return &Prefetcher{}
-	}
-	if limit <= 0 {
-		limit = runtime.NumCPU()
-	}
-
+// prefetchPackages builds the speculative download list from a decoded
+// lock: production packages plus (optionally) dev packages, minus
+// synthetic workspace entries, which have no dist to download. On the
+// trusted-lockfile path this is exactly the set fetchAll later
+// receives, so a progress total announced from this list is never
+// revised.
+func prefetchPackages(lf *lock.File, includeDev bool) []lock.Package {
 	pkgs := make([]lock.Package, 0, len(lf.Packages)+len(lf.PackagesDev))
 	pkgs = append(pkgs, lf.Packages...)
 	if includeDev {
 		pkgs = append(pkgs, lf.PackagesDev...)
 	}
-	if len(pkgs) == 0 {
+	return nonWorkspacePackages(pkgs)
+}
+
+// startPrefetch begins downloading every package in pkgs using f.
+// Errors are intentionally swallowed: the resolver pass is the
+// authoritative gate, and any genuine missing-package or network
+// failure will surface there with the right error message.
+//
+// onFetched, when non-nil, fires after each successful speculative
+// download (or warm-store hit) with the package's name and version.
+// Failed fetches do not fire it — fetchAll retries those
+// authoritatively and reports them through the same shared ticker.
+// Called from prefetch worker goroutines; implementations must be
+// concurrency-safe and cheap.
+//
+// limit caps in-flight downloads. Pass <=0 for runtime.NumCPU().
+func startPrefetch(ctx context.Context, pkgs []lock.Package, f Fetcher, limit int, onFetched func(name, version string)) *Prefetcher {
+	if len(pkgs) == 0 || f == nil {
 		return &Prefetcher{}
+	}
+	if limit <= 0 {
+		limit = runtime.NumCPU()
 	}
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -116,7 +126,10 @@ func startPrefetch(ctx context.Context, lf *lock.File, f Fetcher, includeDev boo
 				// fetchAll is what surfaces problems. Returning an error here
 				// would cancel the errgroup and abort sibling downloads we'd
 				// happily have completed.
-				_, _ = f.Fetch(gctx, p)
+				_, err := f.Fetch(gctx, p)
+				if err == nil && onFetched != nil {
+					onFetched(p.Name, p.Version)
+				}
 				return nil
 			})
 		}

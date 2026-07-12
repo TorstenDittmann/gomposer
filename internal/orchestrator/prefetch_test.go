@@ -74,7 +74,7 @@ func TestPrefetcherFiresOneCallPerPackage(t *testing.T) {
 			{Name: "v/d"},
 		},
 	}
-	pf := startPrefetch(context.Background(), lf, f, true /* includeDev */, 4)
+	pf := startPrefetch(context.Background(), prefetchPackages(lf, true), f, 4, nil)
 	pf.Wait()
 
 	got := f.Calls()
@@ -95,7 +95,7 @@ func TestPrefetcherSkipsDevWhenAsked(t *testing.T) {
 		Packages:    []lock.Package{{Name: "v/a"}},
 		PackagesDev: []lock.Package{{Name: "v/d"}},
 	}
-	pf := startPrefetch(context.Background(), lf, f, false /* includeDev */, 4)
+	pf := startPrefetch(context.Background(), prefetchPackages(lf, false), f, 4, nil)
 	pf.Wait()
 	if len(f.Calls()) != 1 {
 		t.Errorf("calls = %v, want only [v/a]", f.Calls())
@@ -115,7 +115,7 @@ func TestPrefetcherSwallowsErrors(t *testing.T) {
 		Packages: []lock.Package{{Name: "v/a"}, {Name: "v/b"}, {Name: "v/c"}},
 	}
 	// Wait must NOT return an error — prefetch is best-effort.
-	pf := startPrefetch(context.Background(), lf, f, false, 4)
+	pf := startPrefetch(context.Background(), prefetchPackages(lf, false), f, 4, nil)
 	pf.Wait()
 	if len(f.Calls()) != 3 {
 		t.Errorf("expected all 3 packages attempted, got %v", f.Calls())
@@ -129,7 +129,7 @@ func TestPrefetcherCapsConcurrency(t *testing.T) {
 		pkgs[i] = lock.Package{Name: "v/p" + string(rune('a'+i))}
 	}
 	lf := &lock.File{Packages: pkgs}
-	pf := startPrefetch(context.Background(), lf, f, false, 3)
+	pf := startPrefetch(context.Background(), prefetchPackages(lf, false), f, 3, nil)
 	pf.Wait()
 	if peak := f.maxConcurrent.Load(); peak > 3 {
 		t.Errorf("maxConcurrent = %d, want <= 3", peak)
@@ -144,7 +144,7 @@ func TestPrefetcherRespectsContextCancel(t *testing.T) {
 	}
 	lf := &lock.File{Packages: pkgs}
 	ctx, cancel := context.WithCancel(context.Background())
-	pf := startPrefetch(ctx, lf, f, false, 4)
+	pf := startPrefetch(ctx, prefetchPackages(lf, false), f, 4, nil)
 	cancel()
 	done := make(chan struct{})
 	go func() {
@@ -351,7 +351,7 @@ func TestPrefetchRacesResolver(t *testing.T) {
 	lf := &lock.File{Packages: []lock.Package{
 		{Name: "v/a"}, {Name: "v/b"}, {Name: "v/c"}, {Name: "v/d"},
 	}}
-	pf := startPrefetch(context.Background(), lf, f, false, 4)
+	pf := startPrefetch(context.Background(), prefetchPackages(lf, false), f, 4, nil)
 
 	// Simulate slow resolver. With 4 workers @ 5ms each, all 4 Fetches
 	// comfortably complete inside this window.
@@ -369,4 +369,66 @@ func TestPrefetchRacesResolver(t *testing.T) {
 		t.Fatalf("prefetch did not see all 4 packages by 'resolver finish'; calls = %v", got)
 	}
 	pf.Wait()
+}
+
+// TestPrefetcherFiresOnFetchedPerSuccess: onFetched fires once per
+// successful speculative fetch, never for failures (fetchAll retries
+// those authoritatively and reports them through the shared ticker).
+func TestPrefetcherFiresOnFetchedPerSuccess(t *testing.T) {
+	f := &recordingFetcher{
+		fail: func(name string) error {
+			if name == "v/b" {
+				return context.DeadlineExceeded // any error
+			}
+			return nil
+		},
+	}
+	lf := &lock.File{Packages: []lock.Package{
+		{Name: "v/a", Version: "1.0.0"},
+		{Name: "v/b", Version: "2.0.0"},
+		{Name: "v/c", Version: "3.0.0"},
+	}}
+	var mu sync.Mutex
+	var ticks []string
+	pf := startPrefetch(context.Background(), prefetchPackages(lf, false), f, 4,
+		func(name, version string) {
+			mu.Lock()
+			ticks = append(ticks, name+" "+version)
+			mu.Unlock()
+		})
+	pf.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ticks) != 2 {
+		t.Fatalf("onFetched fired %d times, want 2 (v/b failed); ticks=%v", len(ticks), ticks)
+	}
+	want := map[string]bool{"v/a 1.0.0": true, "v/c 3.0.0": true}
+	for _, tk := range ticks {
+		if !want[tk] {
+			t.Errorf("unexpected tick %q", tk)
+		}
+	}
+}
+
+// TestPrefetchPackagesFiltersWorkspaceAndDev: the announced-total list
+// excludes synthetic workspace entries (no dist to download) and
+// respects the includeDev flag — it must be exactly the set fetchAll
+// receives on the trusted-lockfile path.
+func TestPrefetchPackagesFiltersWorkspaceAndDev(t *testing.T) {
+	lf := &lock.File{
+		Packages: []lock.Package{
+			{Name: "v/a"},
+			{Name: "acme/ws", Type: "workspace"},
+		},
+		PackagesDev: []lock.Package{{Name: "v/dev"}},
+	}
+	got := prefetchPackages(lf, false)
+	if len(got) != 1 || got[0].Name != "v/a" {
+		t.Errorf("prefetchPackages(includeDev=false) = %v, want [v/a]", got)
+	}
+	gotDev := prefetchPackages(lf, true)
+	if len(gotDev) != 2 {
+		t.Errorf("prefetchPackages(includeDev=true) returned %d packages, want 2 (v/a + v/dev)", len(gotDev))
+	}
 }
