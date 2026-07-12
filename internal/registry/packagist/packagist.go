@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/torstendittmann/gomposer/internal/auth"
 	"github.com/torstendittmann/gomposer/internal/cache/httpcache"
 	"github.com/torstendittmann/gomposer/internal/cache/parsedcache"
@@ -29,6 +31,7 @@ type Client struct {
 	baseURL string
 	http    *httpcache.Cache
 	parsed  *parsedcache.Cache[registry.PackageMetadata]
+	sf      singleflight.Group
 }
 
 func New(cfg Config) (*Client, error) {
@@ -64,11 +67,35 @@ func New(cfg Config) (*Client, error) {
 	return &Client{baseURL: cfg.BaseURL, http: hc, parsed: pc}, nil
 }
 
-// Lookup implements registry.SourceLookup. Packagist v2 splits a package's
-// metadata across two files: tagged releases in /p2/<name>.json and dev
-// branches in /p2/<name>~dev.json. We fetch both and merge — most packages
-// only have the first, so the ~dev variant is allowed to 404 silently.
+// Lookup fetches metadata for name. Concurrent same-name calls are
+// coalesced via singleflight: the first caller's underlying HTTP fetch
+// serves every waiting caller. Callers with different names run
+// independently. Cancellation is contagious — if the leader's context
+// cancels mid-flight, every follower receives the same error.
+//
+// The returned *PackageMetadata must be treated as read-only. Coalesced
+// callers all receive the same pointer, so any mutation would race with
+// concurrent readers. See
+// docs/superpowers/specs/2026-07-11-inflight-dedup-design.md.
 func (c *Client) Lookup(ctx context.Context, name string) (*registry.PackageMetadata, error) {
+	result, err, _ := c.sf.Do(name, func() (any, error) {
+		return c.lookupUncoalesced(ctx, name)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*registry.PackageMetadata), nil
+}
+
+// lookupUncoalesced is the raw Lookup body without singleflight
+// wrapping. Callers should use Lookup which coalesces concurrent
+// same-name requests through c.sf.
+//
+// Packagist v2 splits a package's metadata across two files: tagged
+// releases in /p2/<name>.json and dev branches in /p2/<name>~dev.json.
+// We fetch both and merge — most packages only have the first, so the
+// ~dev variant is allowed to 404 silently.
+func (c *Client) lookupUncoalesced(ctx context.Context, name string) (*registry.PackageMetadata, error) {
 	stableBody, err := c.http.Get(ctx, c.baseURL+"/p2/"+name+".json")
 	if err != nil {
 		if isNotFound(err) {
