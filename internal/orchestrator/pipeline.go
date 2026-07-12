@@ -894,7 +894,7 @@ func defaultDeps(opts *Options, m *manifest.Manifest, t *Timings) error {
 	var vcsClients []*vcs.Client
 	if m != nil && len(m.Repositories) > 0 {
 		vcsClients, _ = vcs.NewFromManifest(m.Repositories, vcs.Options{
-			CacheRoot: filepath.Join(cacheRoot, "vcs"),
+			CacheRoot: filepath.Join(cacheRoot, cache.LayerVCS.Subdir),
 		})
 	}
 
@@ -905,7 +905,7 @@ func defaultDeps(opts *Options, m *manifest.Manifest, t *Timings) error {
 
 		// Packagist client (always present; serves as the fallback).
 		pc, err := packagist.New(packagist.Config{
-			CacheDir: filepath.Join(cacheRoot, "packagist"),
+			CacheDir: filepath.Join(cacheRoot, cache.LayerMetadata.Subdir),
 			Auth:     authStore,
 		})
 		if err != nil {
@@ -926,7 +926,7 @@ func defaultDeps(opts *Options, m *manifest.Manifest, t *Timings) error {
 		}
 	}
 	if opts.Fetcher == nil || opts.Materializer == nil {
-		s, err := store.New(filepath.Join(cacheRoot, "store"))
+		s, err := store.New(filepath.Join(cacheRoot, cache.LayerStore.Subdir))
 		if err != nil {
 			return err
 		}

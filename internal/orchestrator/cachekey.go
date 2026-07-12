@@ -44,7 +44,7 @@ func resolutionCacheDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	d := filepath.Join(root, "resolution")
+	d := filepath.Join(root, cache.LayerResolution.Subdir)
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return "", err
 	}
