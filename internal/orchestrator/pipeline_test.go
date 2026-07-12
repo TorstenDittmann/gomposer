@@ -19,6 +19,7 @@ import (
 	"github.com/torstendittmann/gomposer/internal/manifest"
 	"github.com/torstendittmann/gomposer/internal/platform"
 	"github.com/torstendittmann/gomposer/internal/registry"
+	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
 )
 
 // writeFile creates path (and any missing parent directories) with the
@@ -812,5 +813,105 @@ func TestWorkspacesFullPipelineHappyPath(t *testing.T) {
 	}
 	if !bytes.Contains(lockBytes, []byte(`"acme/shared"`)) || !bytes.Contains(lockBytes, []byte(`"acme/api"`)) {
 		t.Errorf("gomposer.lock missing workspace names:\n%s", lockBytes)
+	}
+}
+
+// --- Resolve-phase progress wire-in ---
+
+type recordingProgress struct {
+	mu       sync.Mutex
+	events   []string
+	resolves []string // names passed to IncResolve
+}
+
+func (r *recordingProgress) record(evt string) {
+	r.mu.Lock()
+	r.events = append(r.events, evt)
+	r.mu.Unlock()
+}
+
+func (r *recordingProgress) BeginFetch(int)    { r.record("BeginFetch") }
+func (r *recordingProgress) IncFetch(string)   {}
+func (r *recordingProgress) EndFetch()         { r.record("EndFetch") }
+func (r *recordingProgress) BeginExtract(int)  { r.record("BeginExtract") }
+func (r *recordingProgress) IncExtract(string) {}
+func (r *recordingProgress) EndExtract()       { r.record("EndExtract") }
+func (r *recordingProgress) BeginResolve(int)  { r.record("BeginResolve") }
+func (r *recordingProgress) IncResolve(name string) {
+	r.mu.Lock()
+	r.resolves = append(r.resolves, name)
+	r.mu.Unlock()
+}
+func (r *recordingProgress) EndResolve() { r.record("EndResolve") }
+func (r *recordingProgress) Done(int)    {}
+
+func (r *recordingProgress) resolveCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.resolves)
+}
+
+func (r *recordingProgress) sawEvent(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, e := range r.events {
+		if e == name {
+			return true
+		}
+	}
+	return false
+}
+
+// TestPipelineFiresResolveProgressOnFreshInstall asserts the resolve
+// triad fires during a fresh install and NOT during a resolution-cache
+// hit repeat install. The recording Progress fake records events + per-
+// name IncResolve calls.
+func TestPipelineFiresResolveProgressOnFreshInstall(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"acme/a": {testlookup.Pkg("acme/a", "1.0.0", nil)},
+	})
+	rp := &recordingProgress{}
+
+	opts := Options{
+		ProjectDir: writeManifestObj(t, &manifest.Manifest{
+			Name:    "acme/app",
+			Require: map[string]string{"acme/a": "^1.0"},
+		}),
+		Source:       src,
+		Progress:     rp,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+		NoPrefetch:   true,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !rp.sawEvent("BeginResolve") {
+		t.Errorf("fresh install did not fire BeginResolve; events=%v", rp.events)
+	}
+	if rp.resolveCount() == 0 {
+		t.Errorf("fresh install fired 0 IncResolve calls (expected at least 1)")
+	}
+	if !rp.sawEvent("EndResolve") {
+		t.Errorf("fresh install did not fire EndResolve")
+	}
+
+	// Repeat install: the first Install wrote gomposer.lock into ProjectDir,
+	// so resolveOrCache short-circuits on the existing-lockfile path and the
+	// resolver never runs. Same silence contract as a resolution-cache hit.
+	rp2 := &recordingProgress{}
+	opts.Progress = rp2
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install #2: %v", err)
+	}
+	if rp2.sawEvent("BeginResolve") {
+		t.Errorf("cache-hit install fired BeginResolve; expected silent resolve")
+	}
+	if rp2.resolveCount() != 0 {
+		t.Errorf("cache-hit install fired %d IncResolve calls (expected 0)", rp2.resolveCount())
 	}
 }

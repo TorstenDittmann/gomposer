@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/torstendittmann/gomposer/internal/constraint"
@@ -215,5 +216,50 @@ func TestVersionListerKeepsLibStar(t *testing.T) {
 	got, _ := vl.versions(context.Background(), "acme/widget")
 	if len(got) != 1 {
 		t.Errorf("lib-* should NOT cause filtering; got %d", len(got))
+	}
+}
+
+func TestVersionListerFiresOnLookupPerUniqueLookup(t *testing.T) {
+	// Fake source that records every Lookup call.
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"a/a": {testlookup.Pkg("a/a", "1.0.0", nil)},
+	})
+
+	var mu sync.Mutex
+	seen := []string{}
+	vl := newVersionLister(src, "stable")
+	vl.onLookup = func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, name)
+	}
+
+	// First call fires OnLookup.
+	if _, err := vl.versions(context.Background(), "a/a"); err != nil {
+		t.Fatalf("versions: %v", err)
+	}
+	// Second call hits the versionLister's internal cache — no OnLookup.
+	if _, err := vl.versions(context.Background(), "a/a"); err != nil {
+		t.Fatalf("versions #2: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 {
+		t.Errorf("OnLookup fired %d times, want 1 (cache re-read should not tick)", len(seen))
+	}
+	if len(seen) > 0 && seen[0] != "a/a" {
+		t.Errorf("OnLookup received %q, want a/a", seen[0])
+	}
+}
+
+func TestVersionListerNilOnLookupIsSafe(t *testing.T) {
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"a/a": {testlookup.Pkg("a/a", "1.0.0", nil)},
+	})
+	vl := newVersionLister(src, "stable")
+	// vl.onLookup is nil — must not panic.
+	if _, err := vl.versions(context.Background(), "a/a"); err != nil {
+		t.Fatalf("versions: %v", err)
 	}
 }

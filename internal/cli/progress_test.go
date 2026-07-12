@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -104,4 +105,43 @@ func TestTTYProgressThrottle(t *testing.T) {
 		t.Errorf("throttle ineffective: %d redraws for 50 increments", clears)
 	}
 	p.EndFetch()
+}
+
+func TestTTYProgressEmitsResolveLine(t *testing.T) {
+	var buf bytes.Buffer
+	p := newTTYProgress(&buf)
+	p.BeginResolve(0)
+	p.IncResolve("psr/log")
+	p.IncResolve("monolog/monolog")
+	p.EndResolve()
+
+	out := buf.String()
+	if !strings.Contains(out, "\r\x1b[K") {
+		t.Errorf("expected line-clear escape in output, got %q", out)
+	}
+	if !strings.Contains(out, "resolving") {
+		t.Errorf("expected phase label \"resolving\", got %q", out)
+	}
+	if !strings.Contains(out, "monolog/monolog") {
+		t.Errorf("expected most recent package label, got %q", out)
+	}
+	if !strings.Contains(out, "resolved 2 packages") {
+		t.Errorf("expected phase summary, got %q", out)
+	}
+	// Hint=0 → no denominator, no bar. Match /N/M/ shapes only; package
+	// names like "psr/log" contain a slash but no digits.
+	if regexp.MustCompile(`\d+/\d+`).MatchString(out) {
+		t.Errorf("unexpected denominator for hint=0, got %q", out)
+	}
+}
+
+func TestNoopProgressIsSilentOnResolve(t *testing.T) {
+	var buf bytes.Buffer
+	p := newNoopProgress(&buf)
+	p.BeginResolve(0)
+	p.IncResolve("psr/log")
+	p.EndResolve()
+	if buf.Len() != 0 {
+		t.Errorf("noopProgress should write nothing on resolve, got %q", buf.String())
+	}
 }

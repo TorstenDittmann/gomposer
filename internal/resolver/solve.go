@@ -57,6 +57,14 @@ type Input struct {
 	// Called synchronously from decide(); implementations must return
 	// quickly. No first-seen dedup here — the callback fires every time.
 	OnVersionDecided func(pkgName string, requires map[string]string)
+
+	// OnLookup, when non-nil, fires synchronously before the resolver
+	// issues a Lookup to the underlying registry source. Fires only on
+	// network-path lookups — cache-hit reads inside versionLister do not
+	// fire it, so the callback tick matches user-visible resolver work.
+	// Implementations must return quickly and not panic; called from the
+	// resolver's goroutine.
+	OnLookup func(pkgName string)
 }
 
 // Solve runs the PubGrub loop and returns the resolution Result. On failure
@@ -78,6 +86,7 @@ func Solve(ctx context.Context, in Input) (*Result, error) {
 	vl.ignorePlatformReqs = in.IgnorePlatformReqs
 	vl.strictPlatform = in.StrictPlatform
 	vl.onDecided = in.OnVersionDecided
+	vl.onLookup = in.OnLookup
 
 	// Stability flags: explicit "dev-<branch>" requires admit that branch
 	// regardless of minStab. A per-require suffix (e.g. `^2.0@RC`) lowers

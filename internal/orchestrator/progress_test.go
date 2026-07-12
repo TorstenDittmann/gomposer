@@ -11,8 +11,8 @@ import (
 )
 
 type recordedProgress struct {
-	mu                    sync.Mutex
-	events                []string
+	mu                       sync.Mutex
+	events                   []string
 	fetched, extracted, done int
 }
 
@@ -28,9 +28,18 @@ func (r *recordedProgress) EndFetch()           { r.record("EndFetch") }
 func (r *recordedProgress) BeginExtract(n int)  { r.record("BeginExtract") }
 func (r *recordedProgress) IncExtract(n string) { r.mu.Lock(); r.extracted++; r.mu.Unlock() }
 func (r *recordedProgress) EndExtract()         { r.record("EndExtract") }
+func (r *recordedProgress) BeginResolve(n int)  { r.record("BeginResolve") }
+func (r *recordedProgress) IncResolve(n string) {}
+func (r *recordedProgress) EndResolve()         { r.record("EndResolve") }
 func (r *recordedProgress) Done(n int)          { r.mu.Lock(); r.done = n; r.mu.Unlock() }
 
 func TestProgressInvokedFromPipeline(t *testing.T) {
+	// Isolate the on-disk resolution cache so this test's resolve is always
+	// a fresh one (and therefore always fires BeginResolve/EndResolve),
+	// regardless of what a prior test run may have cached under the real
+	// XDG cache dir.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "composer.json"),
 		[]byte(`{"name":"vendor/root","require":{"a/one":"1.0.0","a/two":"1.0.0"}}`), 0o644); err != nil {
@@ -73,7 +82,7 @@ func TestProgressInvokedFromPipeline(t *testing.T) {
 	if rp.done != 2 {
 		t.Errorf("done = %d, want 2", rp.done)
 	}
-	want := []string{"BeginFetch", "EndFetch", "BeginExtract", "EndExtract"}
+	want := []string{"BeginResolve", "EndResolve", "BeginFetch", "EndFetch", "BeginExtract", "EndExtract"}
 	if len(rp.events) != len(want) {
 		t.Fatalf("events = %v, want %v", rp.events, want)
 	}
