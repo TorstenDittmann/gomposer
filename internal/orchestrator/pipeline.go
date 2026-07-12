@@ -504,7 +504,11 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	t.End("resolve")
 	// Only End if the resolver did work — cache-hit runs (existing lockfile
 	// or resolution cache hit) never fired BeginResolve, so they must stay
-	// silent here too, keeping the Begin/End pair symmetric.
+	// silent here too, keeping the Begin/End pair symmetric. Note that
+	// ttyProgress.endPhase("resolved") prints a summary line unconditionally
+	// (only the live-redraw path is phase-gated), so this gate at the call
+	// site is what actually suppresses a spurious "resolved 0 packages" line
+	// on cache-hit runs — not belt-and-suspenders. Do not remove.
 	if !fromCache && opts.Progress != nil {
 		opts.Progress.EndResolve()
 	}
