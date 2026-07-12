@@ -35,6 +35,10 @@ type versionLister struct {
 	// onDecided, when non-nil, is invoked by decide() every time a version
 	// is committed to the partial solution. Wired from Input.OnVersionDecided.
 	onDecided func(pkgName string, requires map[string]string)
+
+	// onLookup, when non-nil, is invoked before a cache-miss Lookup call.
+	// Wired from Input.OnLookup.
+	onLookup func(pkgName string)
 }
 
 func newVersionLister(src registry.SourceLookup, minStability string) *versionLister {
@@ -130,6 +134,9 @@ func (vl *versionLister) versions(ctx context.Context, pkg string) ([]listedVers
 	}
 	if vl.notFound[pkg] {
 		return nil, errPackageNotFound{pkg: pkg}
+	}
+	if vl.onLookup != nil {
+		vl.onLookup(pkg)
 	}
 	md, err := vl.src.Lookup(ctx, pkg)
 	if err != nil {
