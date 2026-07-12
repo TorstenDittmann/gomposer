@@ -74,7 +74,7 @@ func BenchmarkPrefetchVsNoPrefetch(b *testing.B) {
 
 		var pf *Prefetcher
 		if !noPrefetch {
-			pf = startPrefetch(context.Background(), lf, f, true, 8)
+			pf = startPrefetch(context.Background(), prefetchPackages(lf, true), f, 8, nil)
 		}
 
 		// Simulate resolver: blocks for resolverDelay (Packagist RTT).
@@ -85,7 +85,7 @@ func BenchmarkPrefetchVsNoPrefetch(b *testing.B) {
 		}
 
 		// fetchAll: with prefetch, all shas are warm; without, all are cold.
-		if _, err := fetchAll(context.Background(), lf.Packages, f, 8, nil); err != nil {
+		if _, err := fetchAll(context.Background(), lf.Packages, f, 8, nil, nil); err != nil {
 			b.Fatalf("fetchAll: %v", err)
 		}
 

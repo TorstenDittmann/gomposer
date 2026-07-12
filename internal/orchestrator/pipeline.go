@@ -300,13 +300,22 @@ func resolveOnly(ctx context.Context, opts Options) (*lock.File, error) {
 
 // fetchAll downloads every package in pkgs concurrently with at most
 // `workers` goroutines in flight. Returns map[name]storeKey.
-func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int, prog Progress) (map[string]string, error) {
+//
+// ticker, when non-nil, means the pipeline already opened the fetching
+// phase (maybeStartPrefetch fired BeginFetch when speculative downloads
+// began) and per-package increments must route through the shared dedup
+// ticker so packages already ticked by prefetch don't double-count.
+// When nil, fetchAll owns the whole phase itself. EndFetch fires here
+// in both modes — exactly one summary per fetching phase.
+func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int, prog Progress, ticker *fetchTicker) (map[string]string, error) {
 	if workers < 1 {
 		workers = 1
 	}
-	prog = progressOrNoop(prog)
-	prog.BeginFetch(len(pkgs))
-	defer prog.EndFetch()
+	if ticker == nil {
+		ticker = newFetchTicker(prog)
+		ticker.prog.BeginFetch(len(pkgs))
+	}
+	defer ticker.prog.EndFetch()
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
@@ -324,7 +333,7 @@ func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int, 
 			mu.Lock()
 			keys[p.Name] = key
 			mu.Unlock()
-			prog.IncFetch(p.Name + " " + p.Version)
+			ticker.tick(p.Name, p.Version)
 			return nil
 		})
 	}
@@ -496,7 +505,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		}
 	}()
 
-	prefetch := maybeStartPrefetch(ctx, ps, opts, forceResolve)
+	prefetch, fetchTick := maybeStartPrefetch(ctx, ps, opts, forceResolve)
 
 	t.Begin("resolve")
 	lockFile, fromCache, err := resolveOrCache(ctx, ps, forceResolve)
@@ -578,7 +587,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	fetchable := nonWorkspacePackages(all)
 
 	t.Begin("fetch")
-	keys, err := fetchAll(ctx, fetchable, opts.Fetcher, workerCount(opts.Workers), opts.Progress)
+	keys, err := fetchAll(ctx, fetchable, opts.Fetcher, workerCount(opts.Workers), opts.Progress, fetchTick)
 	if err != nil {
 		t.End("fetch")
 		return err

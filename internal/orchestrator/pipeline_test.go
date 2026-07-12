@@ -819,9 +819,11 @@ func TestWorkspacesFullPipelineHappyPath(t *testing.T) {
 // --- Resolve-phase progress wire-in ---
 
 type recordingProgress struct {
-	mu       sync.Mutex
-	events   []string
-	resolves []string // names passed to IncResolve
+	mu          sync.Mutex
+	events      []string
+	resolves    []string // names passed to IncResolve
+	fetches     []string // labels passed to IncFetch
+	fetchTotals []int    // totals passed to BeginFetch
 }
 
 func (r *recordingProgress) record(evt string) {
@@ -830,8 +832,18 @@ func (r *recordingProgress) record(evt string) {
 	r.mu.Unlock()
 }
 
-func (r *recordingProgress) BeginFetch(int)    { r.record("BeginFetch") }
-func (r *recordingProgress) IncFetch(string)   {}
+func (r *recordingProgress) BeginFetch(n int) {
+	r.mu.Lock()
+	r.fetchTotals = append(r.fetchTotals, n)
+	r.mu.Unlock()
+	r.record("BeginFetch")
+}
+
+func (r *recordingProgress) IncFetch(label string) {
+	r.mu.Lock()
+	r.fetches = append(r.fetches, label)
+	r.mu.Unlock()
+}
 func (r *recordingProgress) EndFetch()         { r.record("EndFetch") }
 func (r *recordingProgress) BeginExtract(int)  { r.record("BeginExtract") }
 func (r *recordingProgress) IncExtract(string) {}
@@ -860,6 +872,18 @@ func (r *recordingProgress) sawEvent(name string) bool {
 		}
 	}
 	return false
+}
+
+func (r *recordingProgress) countEvent(name string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, e := range r.events {
+		if e == name {
+			n++
+		}
+	}
+	return n
 }
 
 // TestPipelineFiresResolveProgressOnFreshInstall asserts the resolve
@@ -913,5 +937,164 @@ func TestPipelineFiresResolveProgressOnFreshInstall(t *testing.T) {
 	}
 	if rp2.resolveCount() != 0 {
 		t.Errorf("cache-hit install fired %d IncResolve calls (expected 0)", rp2.resolveCount())
+	}
+}
+
+// orderedFetcher records each Fetch into the shared recordingProgress
+// event log so tests can assert ordering between fetcher activity and
+// progress events. Same-package sibling of fakeFetcher.
+type orderedFetcher struct {
+	rp *recordingProgress
+}
+
+func (o *orderedFetcher) Fetch(_ context.Context, pkg lock.Package) (string, error) {
+	o.rp.record("Fetch " + pkg.Name)
+	return "store-key-" + pkg.Name, nil
+}
+
+// TestPipelinePrefetchFeedsUnifiedFetchProgress: on a trusted-lockfile
+// install, the fetching phase opens exactly once and BEFORE any
+// download starts (today it opens only after every speculative
+// download silently finished), every package ticks exactly once even
+// though prefetch AND fetchAll both Fetch it, and the phase closes
+// exactly once.
+func TestPipelinePrefetchFeedsUnifiedFetchProgress(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"acme/a": {testlookup.Pkg("acme/a", "1.0.0", nil)},
+		"acme/b": {testlookup.Pkg("acme/b", "1.0.0", nil)},
+	})
+	opts := Options{
+		ProjectDir: writeManifestObj(t, &manifest.Manifest{
+			Name:    "acme/app",
+			Require: map[string]string{"acme/a": "^1.0", "acme/b": "^1.0"},
+		}),
+		Source:       src,
+		Fetcher:      &fakeFetcher{},
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+	}
+	// First install writes gomposer.lock (no lockfile yet, so no prefetch).
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install #1: %v", err)
+	}
+
+	// Second install: trusted lockfile → prefetch path. Fetcher and
+	// Progress share one event log for ordering assertions.
+	rp := &recordingProgress{}
+	opts.Progress = rp
+	opts.Fetcher = &orderedFetcher{rp: rp}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install #2: %v", err)
+	}
+
+	rp.mu.Lock()
+	events := append([]string(nil), rp.events...)
+	totals := append([]int(nil), rp.fetchTotals...)
+	labels := append([]string(nil), rp.fetches...)
+	rp.mu.Unlock()
+
+	// Ordering: BeginFetch precedes every Fetch — the phase opens when
+	// speculative downloads START, not after they finished.
+	beginIdx, firstFetchIdx, fetchCount := -1, -1, 0
+	for i, e := range events {
+		switch {
+		case e == "BeginFetch" && beginIdx == -1:
+			beginIdx = i
+		case len(e) > 6 && e[:6] == "Fetch ":
+			fetchCount++
+			if firstFetchIdx == -1 {
+				firstFetchIdx = i
+			}
+		}
+	}
+	if beginIdx == -1 || firstFetchIdx == -1 || beginIdx > firstFetchIdx {
+		t.Errorf("BeginFetch (idx %d) must precede first Fetch (idx %d); events=%v",
+			beginIdx, firstFetchIdx, events)
+	}
+	// Prefetch + fetchAll each Fetch both packages: 2 speculative + 2
+	// authoritative = 4 fetcher calls, but only 2 progress ticks. This
+	// double-fetch is what the ticker's dedup exists for.
+	if fetchCount != 4 {
+		t.Errorf("second install made %d Fetch calls, want 4 (2 prefetch + 2 fetchAll); events=%v", fetchCount, events)
+	}
+	if n := rp.countEvent("BeginFetch"); n != 1 {
+		t.Errorf("BeginFetch fired %d times, want exactly 1; events=%v", n, events)
+	}
+	if len(totals) != 1 || totals[0] != 2 {
+		t.Errorf("BeginFetch totals = %v, want [2]", totals)
+	}
+	if len(labels) != 2 {
+		t.Errorf("IncFetch fired %d times, want 2 (deduped across prefetch+fetchAll); labels=%v", len(labels), labels)
+	}
+	seen := map[string]bool{}
+	for _, l := range labels {
+		if seen[l] {
+			t.Errorf("duplicate IncFetch label %q", l)
+		}
+		seen[l] = true
+	}
+	if n := rp.countEvent("EndFetch"); n != 1 {
+		t.Errorf("EndFetch fired %d times, want exactly 1", n)
+	}
+}
+
+// TestPipelineNoPrefetchFetchProgressUnchanged: with --no-prefetch the
+// fetchAll-owned phase behaves exactly as before this feature — one
+// BeginFetch with the package count, one tick per package, one EndFetch,
+// and no speculative double-fetching.
+func TestPipelineNoPrefetchFetchProgressUnchanged(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	src := testlookup.New(map[string][]registry.PackageVersion{
+		"acme/a": {testlookup.Pkg("acme/a", "1.0.0", nil)},
+		"acme/b": {testlookup.Pkg("acme/b", "1.0.0", nil)},
+	})
+	ff := &fakeFetcher{}
+	opts := Options{
+		ProjectDir: writeManifestObj(t, &manifest.Manifest{
+			Name:    "acme/app",
+			Require: map[string]string{"acme/a": "^1.0", "acme/b": "^1.0"},
+		}),
+		Source:       src,
+		Fetcher:      ff,
+		Materializer: &fakeMaterializer{},
+		Autoloader:   &fakeAutoloader{},
+		NoScripts:    true,
+		NoPrefetch:   true,
+	}
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install #1: %v", err)
+	}
+
+	rp := &recordingProgress{}
+	opts.Progress = rp
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install #2: %v", err)
+	}
+
+	if n := rp.countEvent("BeginFetch"); n != 1 {
+		t.Errorf("BeginFetch fired %d times, want exactly 1", n)
+	}
+	rp.mu.Lock()
+	totals := append([]int(nil), rp.fetchTotals...)
+	labels := append([]string(nil), rp.fetches...)
+	rp.mu.Unlock()
+	if len(totals) != 1 || totals[0] != 2 {
+		t.Errorf("BeginFetch totals = %v, want [2]", totals)
+	}
+	if len(labels) != 2 {
+		t.Errorf("IncFetch fired %d times, want 2; labels=%v", len(labels), labels)
+	}
+	if n := rp.countEvent("EndFetch"); n != 1 {
+		t.Errorf("EndFetch fired %d times, want exactly 1", n)
+	}
+	ff.mu.Lock()
+	secondRunCalls := len(ff.calls) - 2
+	ff.mu.Unlock()
+	if secondRunCalls != 2 {
+		t.Errorf("second install made %d Fetch calls, want 2 (no prefetch)", secondRunCalls)
 	}
 }
