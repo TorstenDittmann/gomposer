@@ -173,6 +173,7 @@ func buildIgnoreSet(list []string) map[string]bool {
 
 // resolveFunc is the resolver entry point, indirected for tests.
 var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.SourceLookup, includeDev bool) (*resolver.Result, error) {
+	var beginOnce sync.Once
 	return resolver.Solve(ctx, resolver.Input{
 		Manifest:            ps.aggregateManifest,
 		Source:              src,
@@ -184,6 +185,22 @@ var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.Sour
 		// keeps incompatible versions in the candidate pool and reports
 		// warnings post-resolution.
 		StrictPlatform: ps.opts.NoDev,
+		// OnLookup fires once per unique package name the resolver actually
+		// looks up over the network (versionLister's internal cache
+		// suppresses repeats within this Solve call). A sync.Once guards the
+		// first tick so BeginResolve only fires when the resolver does real
+		// work — cache-hit runs (existing lockfile or resolution cache hit)
+		// never reach resolveFunc at all, so they stay silent by
+		// construction; this guard instead protects the case where the
+		// resolver runs but happens to make zero Lookups (e.g. an empty
+		// manifest).
+		OnLookup: func(name string) {
+			if ps.opts.Progress == nil {
+				return
+			}
+			beginOnce.Do(func() { ps.opts.Progress.BeginResolve(0) })
+			ps.opts.Progress.IncResolve(name)
+		},
 		// OnVersionDecided feeds each just-committed version's transitive
 		// requires to the metadata prefetch pool so their Lookups start
 		// concurrently with the resolver still deciding earlier packages,
@@ -485,6 +502,12 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	t.Begin("resolve")
 	lockFile, fromCache, err := resolveOrCache(ctx, ps, forceResolve)
 	t.End("resolve")
+	// Only End if the resolver did work — cache-hit runs (existing lockfile
+	// or resolution cache hit) never fired BeginResolve, so they must stay
+	// silent here too, keeping the Begin/End pair symmetric.
+	if !fromCache && opts.Progress != nil {
+		opts.Progress.EndResolve()
+	}
 	if fromCache {
 		// resolveOrCache short-circuited (existing lockfile or resolution
 		// cache hit): the resolver never ran, so the metadata prefetch pool's
