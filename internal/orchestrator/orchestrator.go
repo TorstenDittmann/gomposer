@@ -49,6 +49,9 @@ type Progress interface {
 	BeginExtract(total int)
 	IncExtract(name string)
 	EndExtract()
+	BeginResolve(hint int)
+	IncResolve(name string)
+	EndResolve()
 	Done(packageCount int)
 }
 

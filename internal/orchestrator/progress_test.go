@@ -11,8 +11,8 @@ import (
 )
 
 type recordedProgress struct {
-	mu                    sync.Mutex
-	events                []string
+	mu                       sync.Mutex
+	events                   []string
 	fetched, extracted, done int
 }
 
@@ -28,6 +28,9 @@ func (r *recordedProgress) EndFetch()           { r.record("EndFetch") }
 func (r *recordedProgress) BeginExtract(n int)  { r.record("BeginExtract") }
 func (r *recordedProgress) IncExtract(n string) { r.mu.Lock(); r.extracted++; r.mu.Unlock() }
 func (r *recordedProgress) EndExtract()         { r.record("EndExtract") }
+func (r *recordedProgress) BeginResolve(n int)  { r.record("BeginResolve") }
+func (r *recordedProgress) IncResolve(n string) {}
+func (r *recordedProgress) EndResolve()         { r.record("EndResolve") }
 func (r *recordedProgress) Done(n int)          { r.mu.Lock(); r.done = n; r.mu.Unlock() }
 
 func TestProgressInvokedFromPipeline(t *testing.T) {

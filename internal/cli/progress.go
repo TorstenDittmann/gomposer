@@ -37,6 +37,10 @@ type Progress interface {
 	IncExtract(name string)
 	EndExtract()
 
+	BeginResolve(hint int)
+	IncResolve(name string)
+	EndResolve()
+
 	// Done is called once after the whole install pipeline has finished.
 	// packageCount is the number of packages installed (production + dev).
 	Done(packageCount int)
@@ -78,13 +82,16 @@ type noopProgress struct{ w io.Writer }
 
 func newNoopProgress(w io.Writer) *noopProgress { return &noopProgress{w: w} }
 
-func (p *noopProgress) BeginFetch(int)   {}
-func (p *noopProgress) IncFetch(string)  {}
-func (p *noopProgress) EndFetch()        {}
-func (p *noopProgress) BeginExtract(int) {}
+func (p *noopProgress) BeginFetch(int)    {}
+func (p *noopProgress) IncFetch(string)   {}
+func (p *noopProgress) EndFetch()         {}
+func (p *noopProgress) BeginExtract(int)  {}
 func (p *noopProgress) IncExtract(string) {}
-func (p *noopProgress) EndExtract()      {}
-func (p *noopProgress) Done(int)         {}
+func (p *noopProgress) EndExtract()       {}
+func (p *noopProgress) BeginResolve(int)  {}
+func (p *noopProgress) IncResolve(string) {}
+func (p *noopProgress) EndResolve()       {}
+func (p *noopProgress) Done(int)          {}
 
 const (
 	redrawInterval = 50 * time.Millisecond
@@ -139,11 +146,21 @@ func (p *ttyProgress) inc(name string) {
 func (p *ttyProgress) EndFetch()   { p.endPhase("fetched") }
 func (p *ttyProgress) EndExtract() { p.endPhase("extracted") }
 
+func (p *ttyProgress) BeginResolve(hint int)  { p.beginPhase("resolving", hint) }
+func (p *ttyProgress) IncResolve(name string) { p.inc(name) }
+func (p *ttyProgress) EndResolve()            { p.endPhase("resolved") }
+
 func (p *ttyProgress) endPhase(verb string) {
 	// Force one final redraw at 100% before printing the summary.
 	p.maybeDraw(true)
 	p.mu.Lock()
 	total := p.total
+	// When no hint/total was known upfront (e.g. resolve phase with hint=0),
+	// fall back to the actual increment count so the summary reports the
+	// real number processed instead of "0 packages".
+	if total == 0 {
+		total = int(p.current.Load())
+	}
 	p.phase = ""
 	p.mu.Unlock()
 	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d packages\n", verb, total)
@@ -168,12 +185,16 @@ func (p *ttyProgress) maybeDraw(force bool) {
 		return
 	}
 	cur := int(p.current.Load())
-	if cur > p.total {
-		cur = p.total
+	if p.total > 0 {
+		if cur > p.total {
+			cur = p.total
+		}
+		bar := renderBar(cur, p.total)
+		fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d/%d  %s  %s",
+			p.phase, cur, p.total, bar, p.label)
+	} else {
+		fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d  %s", p.phase, cur, p.label)
 	}
-	bar := renderBar(cur, p.total)
-	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d/%d  %s  %s",
-		p.phase, cur, p.total, bar, p.label)
 	p.lastDraw = now
 }
 

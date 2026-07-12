@@ -49,6 +49,9 @@ func (noopProgress) EndFetch()         {}
 func (noopProgress) BeginExtract(int)  {}
 func (noopProgress) IncExtract(string) {}
 func (noopProgress) EndExtract()       {}
+func (noopProgress) BeginResolve(int)  {}
+func (noopProgress) IncResolve(string) {}
+func (noopProgress) EndResolve()       {}
 func (noopProgress) Done(int)          {}
 
 // Fetcher downloads a single locked package and returns a content-store key.
