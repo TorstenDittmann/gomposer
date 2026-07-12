@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -134,5 +135,14 @@ func humanBytes(n int64) string {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMG"[exp])
+	mantissa := float64(n) / float64(div)
+	// %.1f rounds; if that rounding would display 1000.0 (e.g. 999_950
+	// kB rounds to "1000.0 kB"), bump to the next unit so it reads
+	// "1.0 MB" instead. GB is still the cap (exp < 2 guards that).
+	if exp < 2 && math.Round(mantissa*10) >= 10000 {
+		div *= unit
+		exp++
+		mantissa = float64(n) / float64(div)
+	}
+	return fmt.Sprintf("%.1f %cB", mantissa, "kMG"[exp])
 }

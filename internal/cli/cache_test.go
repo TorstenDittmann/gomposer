@@ -121,6 +121,52 @@ func TestCacheClearUnknownLayerFailsBeforeClearing(t *testing.T) {
 	}
 }
 
+func TestCacheQuietSuppressesOutputExceptDir(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	seedLayer(t, "store", "a.zip", 5)
+
+	out, err := runCache(t, "cache", "--quiet")
+	if err != nil {
+		t.Fatalf("cache --quiet: %v", err)
+	}
+	if out != "" {
+		t.Errorf("cache --quiet produced output, want none:\n%s", out)
+	}
+
+	out, err = runCache(t, "cache", "clear", "--quiet")
+	if err != nil {
+		t.Fatalf("cache clear --quiet: %v", err)
+	}
+	if out != "" {
+		t.Errorf("cache clear --quiet produced output, want none:\n%s", out)
+	}
+
+	xdg := os.Getenv("XDG_CACHE_HOME")
+	out, err = runCache(t, "cache", "dir", "--quiet")
+	if err != nil {
+		t.Fatalf("cache dir --quiet: %v", err)
+	}
+	if want := filepath.Join(xdg, "gomposer") + "\n"; out != want {
+		t.Errorf("cache dir --quiet output = %q, want %q", out, want)
+	}
+}
+
+func TestCacheClearDuplicateArgsDedup(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	seedLayer(t, "store", "a.zip", 5)
+
+	out, err := runCache(t, "cache", "clear", "store", "store")
+	if err != nil {
+		t.Fatalf("cache clear store store: %v", err)
+	}
+	if n := strings.Count(out, "cleared store"); n != 1 {
+		t.Errorf("cleared store appeared %d times, want 1:\n%s", n, out)
+	}
+	if strings.Contains(out, "freed") {
+		t.Errorf("deduped single-layer clear must omit the total line:\n%s", out)
+	}
+}
+
 func TestHumanBytes(t *testing.T) {
 	cases := []struct {
 		n    int64
@@ -133,6 +179,9 @@ func TestHumanBytes(t *testing.T) {
 		{142_300_000, "142.3 MB"},
 		{3_100_000_000, "3.1 GB"},
 		{2_500_000_000_000, "2500.0 GB"},
+		{999_949, "999.9 kB"},
+		{999_950, "1.0 MB"},
+		{999_950_000, "1.0 GB"},
 	}
 	for _, c := range cases {
 		if got := humanBytes(c.n); got != c.want {
