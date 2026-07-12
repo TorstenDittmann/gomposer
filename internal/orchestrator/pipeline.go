@@ -187,13 +187,12 @@ var resolveFunc = func(ctx context.Context, ps *pipelineState, src registry.Sour
 		StrictPlatform: ps.opts.NoDev,
 		// OnLookup fires once per unique package name the resolver actually
 		// looks up over the network (versionLister's internal cache
-		// suppresses repeats within this Solve call). A sync.Once guards the
-		// first tick so BeginResolve only fires when the resolver does real
-		// work — cache-hit runs (existing lockfile or resolution cache hit)
-		// never reach resolveFunc at all, so they stay silent by
-		// construction; this guard instead protects the case where the
-		// resolver runs but happens to make zero Lookups (e.g. an empty
-		// manifest).
+		// suppresses repeats within this Solve call). sync.Once fires
+		// BeginResolve on the first Inc — every subsequent Inc is just a
+		// redraw. Cache-hit runs (existing lockfile or resolution cache
+		// hit) never reach resolveFunc at all, so they stay silent by
+		// construction, and a zero-Lookup resolve stays silent because
+		// OnLookup never fires.
 		OnLookup: func(name string) {
 			if ps.opts.Progress == nil {
 				return
@@ -502,13 +501,13 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	t.Begin("resolve")
 	lockFile, fromCache, err := resolveOrCache(ctx, ps, forceResolve)
 	t.End("resolve")
-	// Only End if the resolver did work — cache-hit runs (existing lockfile
-	// or resolution cache hit) never fired BeginResolve, so they must stay
-	// silent here too, keeping the Begin/End pair symmetric. Note that
-	// ttyProgress.endPhase("resolved") prints a summary line unconditionally
-	// (only the live-redraw path is phase-gated), so this gate at the call
-	// site is what actually suppresses a spurious "resolved 0 packages" line
-	// on cache-hit runs — not belt-and-suspenders. Do not remove.
+	// Only End if the resolver did work — cache-hit runs never fired
+	// BeginResolve, so keep the Begin/End pair symmetric at the call site.
+	// ttyProgress.endPhase also self-guards when phase is empty (so a
+	// stray End would be silent anyway), but gating here keeps the
+	// invariant visible in the pipeline rather than relying on the
+	// renderer, and covers a zero-Lookup resolve (fromCache=false but the
+	// resolver made no Lookup calls) too.
 	if !fromCache && opts.Progress != nil {
 		opts.Progress.EndResolve()
 	}

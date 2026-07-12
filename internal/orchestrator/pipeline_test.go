@@ -900,7 +900,9 @@ func TestPipelineFiresResolveProgressOnFreshInstall(t *testing.T) {
 		t.Errorf("fresh install did not fire EndResolve")
 	}
 
-	// Repeat install: resolution cache hits, resolver never runs.
+	// Repeat install: the first Install wrote gomposer.lock into ProjectDir,
+	// so resolveOrCache short-circuits on the existing-lockfile path and the
+	// resolver never runs. Same silence contract as a resolution-cache hit.
 	rp2 := &recordingProgress{}
 	opts.Progress = rp2
 	if err := Install(context.Background(), opts); err != nil {

@@ -151,6 +151,15 @@ func (p *ttyProgress) IncResolve(name string) { p.inc(name) }
 func (p *ttyProgress) EndResolve()            { p.endPhase("resolved") }
 
 func (p *ttyProgress) endPhase(verb string) {
+	p.mu.Lock()
+	if p.phase == "" {
+		// beginPhase never fired (or already ended). Stay silent so the
+		// caller can End unconditionally without emitting a stray summary
+		// for a phase that did no work.
+		p.mu.Unlock()
+		return
+	}
+	p.mu.Unlock()
 	// Force one final redraw at 100% before printing the summary.
 	p.maybeDraw(true)
 	p.mu.Lock()

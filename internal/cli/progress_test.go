@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -127,9 +128,10 @@ func TestTTYProgressEmitsResolveLine(t *testing.T) {
 	if !strings.Contains(out, "resolved 2 packages") {
 		t.Errorf("expected phase summary, got %q", out)
 	}
-	// Hint=0 → no denominator, no bar. Absence check:
-	if strings.Contains(out, "/") && !strings.Contains(out, "psr/log") && !strings.Contains(out, "monolog/monolog") {
-		t.Errorf("unexpected denominator/bar for hint=0, got %q", out)
+	// Hint=0 → no denominator, no bar. Match /N/M/ shapes only; package
+	// names like "psr/log" contain a slash but no digits.
+	if regexp.MustCompile(`\d+/\d+`).MatchString(out) {
+		t.Errorf("unexpected denominator for hint=0, got %q", out)
 	}
 }
 
