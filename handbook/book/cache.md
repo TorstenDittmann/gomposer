@@ -13,11 +13,30 @@ Sub-directories:
 |---|---|
 | `store/` | Content-addressed zip store. Keyed by SHA-256 of the archive bytes; shared across every project. Files are only ever added, never mutated. |
 | `packagist/http/` | HTTP response cache for Packagist v2 (`/p2/*.json`) — ETag-aware. |
-| `packagist/parsed-v2/` | Parsed-response cache: the decoded `PackageMetadata` gob-encoded on disk. Bumped from `parsed/` to `parsed-v2/` when the metadata shape changed. |
-| `vcs/` | Cloned VCS repositories for `repositories: [{type: "vcs"}]` entries. |
-| `resolution-v2/` | Cached resolver results, keyed by manifest bytes + lock bytes + platform fingerprint. Bumped from `resolution/` after a schema change. |
+| `packagist/parsed/` | Parsed-response cache: decoded `PackageMetadata` gob-encoded on disk. |
+| `vcs/` | Cloned repositories and parsed metadata for `repositories: [{type: "vcs"}]` entries. |
+| `resolution/` | Cached resolver results, keyed by manifest bytes + lock bytes + platform fingerprint. |
 
-Deleting any of them is safe; the next install will refill what it needs. The most common reason to clear a specific subdir is to force a re-fetch after an upstream metadata anomaly (e.g., a broken Packagist entry that's since been fixed).
+Deleting any of them is safe; the next install will refill what it needs. Prefer the built-in commands over deleting directories manually:
+
+```sh
+gomposer cache                         # path, per-layer sizes, and total
+gomposer cache dir                     # raw path for scripts and shell tools
+gomposer cache clear                   # clear all layers
+gomposer cache clear metadata          # clear Packagist HTTP + parsed metadata
+gomposer cache clear store resolution  # clear multiple selected layers
+```
+
+The user-facing layers map to disk as follows:
+
+| Layer | Directory | Contents |
+|---|---|---|
+| `store` | `store/` | Downloaded package archives. |
+| `metadata` | `packagist/` | Packagist HTTP responses and parsed metadata. |
+| `resolution` | `resolution/` | Resolver results. |
+| `vcs` | `vcs/` | VCS clones and metadata. |
+
+The most common reason to clear a specific layer is to force a re-fetch after an upstream metadata anomaly, such as a broken Packagist entry that has since been fixed. Clearing is immediate and non-interactive; an unknown layer name fails before anything is removed.
 
 ## Per-project state
 

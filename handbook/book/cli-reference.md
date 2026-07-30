@@ -1,6 +1,6 @@
 # CLI Reference
 
-Two commands: `install` and `update`. They share the same global flags plus a couple of per-command flags.
+The dependency commands are `install` and `update`. Cache inspection and maintenance live under the `cache` command group.
 
 ## `gomposer install`
 
@@ -18,9 +18,31 @@ Re-resolve every dependency, rewrite `gomposer.lock`, then install.
 gomposer update [flags]
 ```
 
-## Global flags
+## `gomposer cache`
 
-Available on both commands.
+Print the cache root, disk usage for each cache layer, and the total:
+
+```sh
+gomposer cache
+```
+
+The cache group also supports:
+
+```sh
+gomposer cache dir                       # print only the cache root
+gomposer cache clear                     # clear every layer
+gomposer cache clear store metadata      # clear selected layers
+```
+
+Valid layer names are `store`, `metadata`, `resolution`, and `vcs`. Clearing is non-interactive because every layer is rebuildable. An unknown layer fails before anything is removed, and repeated layer names are cleared only once.
+
+`--quiet` suppresses the informational output from `cache` and `cache clear`. `cache dir` still prints the path under `--quiet` so it remains suitable for command substitution.
+
+See [Cache Paths](./cache.md) for the layer layout.
+
+## Install and update flags
+
+Available on both dependency commands.
 
 | Flag | Effect |
 |---|---|

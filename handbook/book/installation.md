@@ -12,7 +12,7 @@ The script:
 
 1. Detects your OS (`darwin` / `linux`) and architecture (`amd64` / `arm64`).
 2. Resolves the latest release tag from the GitHub API (or `$GOMPOSER_VERSION` if set).
-3. Downloads the matching `.tar.gz` archive plus the `checksums.txt` file.
+3. Downloads the matching `.tar.gz` archive plus the `gomposer_<version>_checksums.txt` file.
 4. Verifies the archive's SHA-256 against the checksum.
 5. Extracts the binary and moves it into `/usr/local/bin/gomposer`, falling back to `$HOME/.local/bin` if the default isn't writable without sudo.
 
@@ -36,7 +36,7 @@ go install github.com/torstendittmann/gomposer/cmd/gomposer@latest
 Every release on the [Releases page](https://github.com/TorstenDittmann/gomposer/releases) ships:
 
 - One `.tar.gz` per platform: `gomposer_<version>_<os>_<arch>.tar.gz`.
-- A `checksums.txt` covering every archive.
+- A `gomposer_<version>_checksums.txt` file covering every archive.
 
 Verify with `sha256sum -c`, extract, and drop the `gomposer` binary anywhere on your `PATH`.
 

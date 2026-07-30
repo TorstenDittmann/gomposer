@@ -4,7 +4,7 @@ A Composer-compatible PHP dependency installer, written in Go, that aims for a 2
 
 ## Status
 
-Alpha. Stages 1–3 (core install path, real-world coverage, speed and polish) are complete and covered by an in-tree test suite. Stage 4 (signed artifacts, Homebrew tap) is in progress; prebuilt binaries for macOS and Linux are already published to [GitHub Releases](https://github.com/TorstenDittmann/gomposer/releases).
+Alpha. The core install path, real-world package coverage, and performance work are complete and covered by an in-tree test suite. Prebuilt binaries for macOS and Linux are published to [GitHub Releases](https://github.com/TorstenDittmann/gomposer/releases) with SHA-256 checksums; release artifacts are not cryptographically signed.
 
 Not recommended for production use yet. Please try it on non-critical projects and file issues at [github.com/TorstenDittmann/gomposer](https://github.com/TorstenDittmann/gomposer).
 

@@ -4,7 +4,7 @@ A Composer-compatible PHP dependency installer, written in Go, that aims for a 2
 
 ## Status
 
-Alpha. Stages 1–3 (core install path, real-world coverage, speed and polish) are complete and covered by an in-tree test suite. Stage 4 (signed artifacts, Homebrew tap) is in progress; prebuilt binaries for macOS and Linux are already published to GitHub Releases.
+Alpha. The core install path, real-world package coverage, and performance work are complete and covered by an in-tree test suite. Prebuilt binaries for macOS and Linux are published to GitHub Releases with SHA-256 checksums; release artifacts are not cryptographically signed.
 
 Not recommended for production use yet. Please try it on non-critical projects and file issues.
 
@@ -24,7 +24,7 @@ Not recommended for production use yet. Please try it on non-critical projects a
 curl -fsSL https://raw.githubusercontent.com/TorstenDittmann/gomposer/main/install.sh | sh
 ```
 
-The script downloads the latest release from GitHub, verifies its SHA-256 against the release's `checksums.txt`, and installs the binary to `/usr/local/bin/gomposer` (falling back to `~/.local/bin` if the default isn't writable without sudo). Override with `GOMPOSER_INSTALL_DIR=/path/to/dir` or pin a version with `GOMPOSER_VERSION=v0.1.0`.
+The script downloads the latest release from GitHub, verifies its SHA-256 against the release's `gomposer_<version>_checksums.txt`, and installs the binary to `/usr/local/bin/gomposer` (falling back to `~/.local/bin` if the default isn't writable without sudo). Override with `GOMPOSER_INSTALL_DIR=/path/to/dir` or pin a version with `GOMPOSER_VERSION=v0.1.0`.
 
 **From source (requires Go 1.25+):**
 
@@ -43,6 +43,10 @@ Inside a project that has a `composer.json`:
 ```sh
 gomposer install          # install from composer.json, using gomposer.lock if present
 gomposer update           # re-resolve everything and rewrite gomposer.lock + vendor/
+gomposer cache            # print the cache path and per-layer disk usage
+gomposer cache dir        # print only the cache path
+gomposer cache clear      # clear every cache layer
+gomposer cache clear store metadata  # clear selected layers
 ```
 
 Common flags:
@@ -114,7 +118,6 @@ What it does **not** do:
 
 - It does not read `composer.lock` — gomposer keeps its own `gomposer.lock` with a different schema. If both exist they are independent; you can run Composer alongside gomposer safely.
 - It does not run Composer plugins. `--allow-plugins` is accepted for compatibility and is a no-op.
-- Stage 4 items (signed releases, Homebrew, `curl | sh`, migration guide) are pending.
 
 ## Cache paths
 
@@ -131,6 +134,8 @@ Sub-directories:
 - `resolution/` — cached resolver results keyed by manifest+lock+platform.
 
 Deleting any of them is safe; the next install will refill what it needs.
+
+Use `gomposer cache` to inspect disk usage, `gomposer cache dir` to print the raw cache path, and `gomposer cache clear [layer...]` to clear all or selected layers. Valid layer names are `store`, `metadata`, `resolution`, and `vcs`.
 
 ## Benchmarks
 
