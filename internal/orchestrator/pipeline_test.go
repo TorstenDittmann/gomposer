@@ -20,6 +20,7 @@ import (
 	"github.com/torstendittmann/gomposer/internal/platform"
 	"github.com/torstendittmann/gomposer/internal/registry"
 	"github.com/torstendittmann/gomposer/internal/resolver/testlookup"
+	"github.com/torstendittmann/gomposer/internal/store"
 )
 
 // writeFile creates path (and any missing parent directories) with the
@@ -42,6 +43,50 @@ func mustVer(t *testing.T, s string) constraint.Version {
 		t.Fatalf("ParseVersion(%q): %v", s, err)
 	}
 	return v
+}
+
+func TestFetcherAdapterVCSStoreHitSkipsArchive(t *testing.T) {
+	s, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+
+	sha := strings.Repeat("a", 64)
+	writeFile(t, s.Path(sha), "cached archive")
+
+	var fetchName string
+	var fetchBytes int
+	var fromCache bool
+	var fetchCalls int
+	a := &fetcherAdapter{
+		store: s,
+		onFetch: func(name string, bytes int, cached bool) {
+			fetchName = name
+			fetchBytes = bytes
+			fromCache = cached
+			fetchCalls++
+		},
+	}
+	pkg := lock.Package{
+		Name: "acme/vcs",
+		Source: lock.Source{
+			Type: "git",
+			URL:  "https://example.test/acme.git",
+			Ref:  "0123456789abcdef",
+		},
+		Dist: lock.Dist{Sha256: sha},
+	}
+
+	got, err := a.Fetch(context.Background(), pkg)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got != sha {
+		t.Errorf("Fetch SHA = %q, want %q", got, sha)
+	}
+	if fetchCalls != 1 || fetchName != pkg.Name || fetchBytes != 0 || !fromCache {
+		t.Errorf("fetch event = calls:%d name:%q bytes:%d cached:%t", fetchCalls, fetchName, fetchBytes, fromCache)
+	}
 }
 
 func TestEvaluatePlatformWarningsDefaultMode(t *testing.T) {
