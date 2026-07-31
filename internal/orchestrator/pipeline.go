@@ -804,12 +804,21 @@ type fetcherAdapter struct {
 	f          *realfetcher.Fetcher
 	store      *store.Store
 	vcsClients []*vcs.Client // matched against pkg.Source.URL when Dist is empty
+	onFetch    func(name string, bytes int, fromCache bool)
 }
 
 func (a *fetcherAdapter) Fetch(ctx context.Context, pkg lock.Package) (string, error) {
 	// Pure-VCS packages have an empty Dist (Packagist-tagged releases provide
 	// a Dist; resolved-from-VCS branches do not). Fall back to git archive.
 	if pkg.Dist.URL == "" && pkg.Source.Type == "git" && pkg.Source.URL != "" {
+		// The first install backfills the generated archive hash into the lock
+		// file. Reuse that content-addressed artifact on subsequent installs.
+		if pkg.Dist.Sha256 != "" && a.store.Has(pkg.Dist.Sha256) {
+			if a.onFetch != nil {
+				a.onFetch(pkg.Name, 0, true)
+			}
+			return pkg.Dist.Sha256, nil
+		}
 		return a.fetchViaGitArchive(ctx, pkg)
 	}
 	pv := registry.PackageVersion{
@@ -844,6 +853,12 @@ func (a *fetcherAdapter) fetchViaGitArchive(ctx context.Context, pkg lock.Packag
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("orchestrator: %s: %w", pkg.Name, err)
 	}
+	info, err := tmp.Stat()
+	if err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("orchestrator: %s: stat tmp: %w", pkg.Name, err)
+	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return "", err
@@ -857,9 +872,15 @@ func (a *fetcherAdapter) fetchViaGitArchive(ctx context.Context, pkg lock.Packag
 	if err := os.Rename(tmpPath, dest); err != nil {
 		_ = os.Remove(tmpPath)
 		if a.store.Has(sha) {
+			if a.onFetch != nil {
+				a.onFetch(pkg.Name, int(info.Size()), false)
+			}
 			return sha, nil
 		}
 		return "", fmt.Errorf("orchestrator: %s: rename: %w", pkg.Name, err)
+	}
+	if a.onFetch != nil {
+		a.onFetch(pkg.Name, int(info.Size()), false)
 	}
 	return sha, nil
 }
@@ -1019,7 +1040,7 @@ func defaultDeps(opts *Options, m *manifest.Manifest, t *Timings) error {
 			return err
 		}
 		f := realfetcher.New(s, nil)
-		f.OnFetch = func(name string, bytes int, fromCache bool) {
+		onFetch := func(name string, bytes int, fromCache bool) {
 			if t != nil {
 				t.AddFetch(name, bytes, fromCache)
 			}
@@ -1027,8 +1048,9 @@ func defaultDeps(opts *Options, m *manifest.Manifest, t *Timings) error {
 				j.RecordFetch(name, bytes, fromCache)
 			}
 		}
+		f.OnFetch = onFetch
 		if opts.Fetcher == nil {
-			opts.Fetcher = &fetcherAdapter{f: f, store: s, vcsClients: vcsClients}
+			opts.Fetcher = &fetcherAdapter{f: f, store: s, vcsClients: vcsClients, onFetch: onFetch}
 		}
 		if opts.Materializer == nil {
 			opts.Materializer = &materializerAdapter{f: f}
