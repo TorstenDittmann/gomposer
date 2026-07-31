@@ -2,6 +2,9 @@
 
 Add `-v` (or `--verbose`) to any `install` or `update` to get a per-phase timing block after the run completes.
 
+The normal live checklist or CI phase summaries still render first. Verbose
+mode appends the detailed timing block; it does not replace progress output.
+
 ```
 gomposer: timing
   read manifest       52 ms

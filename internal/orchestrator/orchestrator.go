@@ -176,6 +176,9 @@ func run(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve b
 	// aggregate manifest built from its workspaces may have requires of its
 	// own, plus the lockfile needs the synthetic workspace entries.
 	if len(m.Require) == 0 && len(m.RequireDev) == 0 && len(m.Workspaces) == 0 {
+		if opts.Progress != nil {
+			opts.Progress.Done(0)
+		}
 		return nil
 	}
 	if opts.NoNetwork {
@@ -184,7 +187,11 @@ func run(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve b
 	t := NewTimings()
 	err := runFullPipeline(ctx, opts, m, forceResolve, t)
 	if opts.Verbose && !opts.Quiet {
-		t.Render(os.Stderr)
+		w := opts.WarnWriter
+		if w == nil {
+			w = os.Stderr
+		}
+		t.Render(w)
 	}
 	return err
 }

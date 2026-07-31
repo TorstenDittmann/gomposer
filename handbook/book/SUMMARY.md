@@ -6,6 +6,7 @@
     - [Quick Start](quick-start.md)
 - Usage
     - [CLI Reference](cli-reference.md)
+    - [Terminal Output](terminal-output.md)
     - [Verbose Output](verbose-output.md)
     - [Benchmarks](benchmarks.md)
 - Composer Compatibility

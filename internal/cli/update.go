@@ -36,6 +36,12 @@ func newUpdateCmd() *cobra.Command {
 			if root, ok := findWorkspaceRoot(projectDir); ok {
 				projectDir = root
 			}
+			progress := NewProgress(cmd.ErrOrStderr(), ProgressOptions{
+				Quiet: flagQuiet, Color: ColorMode(flagColor), Operation: "update", ProjectDir: projectDir,
+			})
+			if p, ok := progress.(journeyProgress); ok {
+				p.BeginStage("prepare", 0)
+			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 			ignored := append([]string(nil), flagIgnorePlatformReqs...)
@@ -43,7 +49,7 @@ func newUpdateCmd() *cobra.Command {
 				ignored = append(ignored, "*")
 			}
 			_ = allowPlugins // explicitly unused
-			return updateFn(ctx, orchestrator.Options{
+			err := updateFn(ctx, orchestrator.Options{
 				ProjectDir:         projectDir,
 				NoDev:              flagNoDev,
 				NoScripts:          flagNoScripts,
@@ -52,8 +58,16 @@ func newUpdateCmd() *cobra.Command {
 				IgnorePlatformReqs: ignored,
 				NoPrefetch:         noPrefetch,
 				NoMetadataPrefetch: noMetadataPrefetch,
-				Progress:           NewProgress(cmd.ErrOrStderr(), ProgressOptions{Quiet: flagQuiet}),
+				Progress:           progress,
+				WarnWriter:         cmd.ErrOrStderr(),
 			})
+			if err != nil {
+				if p, ok := progress.(journeyProgress); ok {
+					p.Fail(err)
+					return markHandled(err)
+				}
+			}
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing composer.json (defaults to cwd)")

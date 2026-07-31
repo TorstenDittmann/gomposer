@@ -1,237 +1,634 @@
-// Package cli — Progress reports install pipeline progress to stderr.
-//
-// Two implementations exist:
-//
-//   - noopProgress: silent. Used under --quiet, and also when the writer is
-//     not a TTY (CI, pipes, redirects). The orchestrator already emits
-//     warnings via charmbracelet/log; the noop progress purposely adds
-//     nothing on top.
-//   - ttyProgress: ANSI in-place redraws. A throttled goroutine rewrites a
-//     single status line ("gomposer: fetching 12/47 [====   ] symfony/console v6.4.5")
-//     at most every redrawInterval. After each phase completes, it prints
-//     a final summary line. After Done(), it prints the wall-time summary.
-//
-// Implementations must be safe for concurrent IncFetch / IncExtract calls
-// from the fetcher and materializer worker pools.
+// Package cli contains the adaptive terminal reporter used by install and
+// update. Interactive terminals get a live checklist; redirected output gets
+// stable, grep-friendly phase lines; --quiet gets a true no-op.
 package cli
 
 import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
 
-// Progress is the orchestrator-facing API. All methods are no-ops when the
-// implementation chooses not to render (e.g. non-TTY, --quiet).
+// Progress is the narrow callback surface consumed by the orchestrator's
+// concurrent resolve/fetch/materialize paths.
 type Progress interface {
 	BeginFetch(total int)
 	IncFetch(name string)
 	EndFetch()
-
 	BeginExtract(total int)
 	IncExtract(name string)
 	EndExtract()
-
 	BeginResolve(hint int)
 	IncResolve(name string)
 	EndResolve()
-
-	// Done is called once after the whole install pipeline has finished.
-	// packageCount is the number of packages installed (production + dev).
 	Done(packageCount int)
 }
 
-// ProgressOptions controls construction of a Progress.
-type ProgressOptions struct {
-	// Quiet forces the noop implementation regardless of TTY detection.
-	Quiet bool
-	// ForceTTY bypasses the IsTerminal check (useful in tests).
-	ForceTTY bool
+// journeyProgress is an optional richer surface. The orchestrator detects it
+// with a type assertion; existing test fakes that only implement Progress keep
+// working unchanged.
+type journeyProgress interface {
+	Progress
+	BeginStage(name string, total int)
+	EndStage(name, detail string)
+	SetStageDetail(name, detail string)
+	Warning(message string)
+	RecordFetch(name string, bytes int, fromCache bool)
+	Fail(err error)
 }
 
-// NewProgress picks an implementation based on Quiet and TTY detection.
-// w should be os.Stderr in production. Tests pass a *bytes.Buffer plus
-// ForceTTY: true to drive ttyProgress without a real terminal.
+type ColorMode string
+
+const (
+	ColorAuto   ColorMode = "auto"
+	ColorAlways ColorMode = "always"
+	ColorNever  ColorMode = "never"
+)
+
+type ProgressOptions struct {
+	Quiet      bool
+	ForceTTY   bool
+	Color      ColorMode
+	Operation  string
+	ProjectDir string
+	Width      int // tests; zero queries the terminal and falls back to 80
+}
+
 func NewProgress(w io.Writer, opts ProgressOptions) Progress {
 	if opts.Quiet {
 		return newNoopProgress(w)
 	}
-	if opts.ForceTTY || isTerminal(w) {
-		return newTTYProgress(w)
+	tty := opts.ForceTTY || isTerminal(w)
+	color := colorEnabled(opts.Color, tty)
+	if tty {
+		return newTTYProgressWithOptions(w, opts, color)
 	}
-	return newNoopProgress(w)
+	return newPlainProgress(w, opts)
 }
 
-// isTerminal returns true when w is *os.File pointing at a TTY. Anything
-// else (bytes.Buffer in tests, io.Pipe, io.Discard) returns false.
+func colorEnabled(mode ColorMode, tty bool) bool {
+	switch mode {
+	case ColorAlways:
+		return true
+	case ColorNever:
+		return false
+	default:
+		return tty && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+	}
+}
+
 func isTerminal(w io.Writer) bool {
 	f, ok := w.(*os.File)
-	if !ok {
-		return false
-	}
-	return term.IsTerminal(int(f.Fd()))
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
-// noopProgress silently swallows every event.
 type noopProgress struct{ w io.Writer }
 
-func newNoopProgress(w io.Writer) *noopProgress { return &noopProgress{w: w} }
+func newNoopProgress(w io.Writer) *noopProgress     { return &noopProgress{w: w} }
+func (*noopProgress) BeginFetch(int)                {}
+func (*noopProgress) IncFetch(string)               {}
+func (*noopProgress) EndFetch()                     {}
+func (*noopProgress) BeginExtract(int)              {}
+func (*noopProgress) IncExtract(string)             {}
+func (*noopProgress) EndExtract()                   {}
+func (*noopProgress) BeginResolve(int)              {}
+func (*noopProgress) IncResolve(string)             {}
+func (*noopProgress) EndResolve()                   {}
+func (*noopProgress) Done(int)                      {}
+func (*noopProgress) BeginStage(string, int)        {}
+func (*noopProgress) EndStage(string, string)       {}
+func (*noopProgress) SetStageDetail(string, string) {}
+func (*noopProgress) Warning(string)                {}
+func (*noopProgress) RecordFetch(string, int, bool) {}
+func (p *noopProgress) Fail(err error)              { renderPlainFailure(p.w, err) }
 
-func (p *noopProgress) BeginFetch(int)    {}
-func (p *noopProgress) IncFetch(string)   {}
-func (p *noopProgress) EndFetch()         {}
-func (p *noopProgress) BeginExtract(int)  {}
-func (p *noopProgress) IncExtract(string) {}
-func (p *noopProgress) EndExtract()       {}
-func (p *noopProgress) BeginResolve(int)  {}
-func (p *noopProgress) IncResolve(string) {}
-func (p *noopProgress) EndResolve()       {}
-func (p *noopProgress) Done(int)          {}
+var stageOrder = []string{"prepare", "resolve", "download", "install", "autoload", "finalize"}
 
-const (
-	redrawInterval = 50 * time.Millisecond
-	barWidth       = 10
-)
-
-// ttyProgress redraws a single line on stderr, throttled to at most one draw
-// per redrawInterval. State is shared between fetch and extract phases (only
-// one phase runs at a time in the orchestrator).
-type ttyProgress struct {
-	w io.Writer
-
-	mu       sync.Mutex
-	phase    string // "fetching", "extracting", or ""
-	total    int
-	current  atomic.Int64
-	label    string
-	lastDraw time.Time
-
-	startTime time.Time
+var stageLabels = map[string]string{
+	"prepare": "Prepare", "resolve": "Resolve", "download": "Download",
+	"install": "Install", "autoload": "Autoload", "finalize": "Finalize",
 }
 
-func newTTYProgress(w io.Writer) *ttyProgress {
-	return &ttyProgress{w: w, startTime: time.Now()}
+type stageState struct {
+	started, ended, printed bool
+	total, current          int
+	cacheHits               int
+	bytes                   int64
+	fetchOutcomes           map[string]bool
+	label, detail           string
+	startedAt, endedAt      time.Time
 }
 
-func (p *ttyProgress) BeginFetch(total int)   { p.beginPhase("fetching", total) }
-func (p *ttyProgress) BeginExtract(total int) { p.beginPhase("extracting", total) }
-
-func (p *ttyProgress) beginPhase(name string, total int) {
-	p.mu.Lock()
-	p.phase = name
-	p.total = total
-	p.label = ""
-	p.current.Store(0)
-	p.lastDraw = time.Time{} // force the first redraw
-	p.mu.Unlock()
-	p.maybeDraw(true)
+type progressState struct {
+	w          io.Writer
+	op         string
+	projectDir string
+	startedAt  time.Time
+	mu         sync.Mutex
+	stages     map[string]*stageState
+	warnings   map[string]struct{}
+	failed     bool
 }
 
-func (p *ttyProgress) IncFetch(name string)   { p.inc(name) }
-func (p *ttyProgress) IncExtract(name string) { p.inc(name) }
-
-func (p *ttyProgress) inc(name string) {
-	p.current.Add(1)
-	p.mu.Lock()
-	p.label = name
-	p.mu.Unlock()
-	p.maybeDraw(false)
-}
-
-func (p *ttyProgress) EndFetch()   { p.endPhase("fetched") }
-func (p *ttyProgress) EndExtract() { p.endPhase("extracted") }
-
-func (p *ttyProgress) BeginResolve(hint int)  { p.beginPhase("resolving", hint) }
-func (p *ttyProgress) IncResolve(name string) { p.inc(name) }
-func (p *ttyProgress) EndResolve()            { p.endPhase("resolved") }
-
-func (p *ttyProgress) endPhase(verb string) {
-	p.mu.Lock()
-	if p.phase == "" {
-		// beginPhase never fired (or already ended). Stay silent so the
-		// caller can End unconditionally without emitting a stray summary
-		// for a phase that did no work.
-		p.mu.Unlock()
-		return
+func newProgressState(w io.Writer, opts ProgressOptions) progressState {
+	op := opts.Operation
+	if op == "" {
+		op = "install"
 	}
-	p.mu.Unlock()
-	// Force one final redraw at 100% before printing the summary.
-	p.maybeDraw(true)
-	p.mu.Lock()
-	total := p.total
-	// When no hint/total was known upfront (e.g. resolve phase with hint=0),
-	// fall back to the actual increment count so the summary reports the
-	// real number processed instead of "0 packages".
-	if total == 0 {
-		total = int(p.current.Load())
+	return progressState{w: w, op: op, projectDir: opts.ProjectDir, startedAt: time.Now(), stages: map[string]*stageState{}, warnings: map[string]struct{}{}}
+}
+
+func (p *progressState) stage(name string) *stageState {
+	s := p.stages[name]
+	if s == nil {
+		s = &stageState{}
+		p.stages[name] = s
 	}
-	p.phase = ""
-	p.mu.Unlock()
-	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d packages\n", verb, total)
+	return s
 }
 
-func (p *ttyProgress) Done(packageCount int) {
-	elapsed := time.Since(p.startTime).Round(10 * time.Millisecond)
-	fmt.Fprintf(p.w, "\r\x1b[Kgomposer: installed %d package%s in %s\n",
-		packageCount, plural(packageCount), elapsed)
+// plainProgress is intentionally boring: one complete line per phase, no
+// redraws. It is suitable for CI logs and redirected stderr.
+type plainProgress struct {
+	progressState
+	color bool
 }
 
-// maybeDraw renders the current line. force=true bypasses the throttle.
-// Concurrent callers serialize on p.mu so writes don't interleave.
-func (p *ttyProgress) maybeDraw(force bool) {
+func newPlainProgress(w io.Writer, opts ProgressOptions) *plainProgress {
+	return &plainProgress{progressState: newProgressState(w, opts), color: opts.Color == ColorAlways}
+}
+
+func (p *plainProgress) paint(code, s string) string {
+	if !p.color {
+		return s
+	}
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
+}
+
+func (p *plainProgress) BeginStage(name string, total int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	now := time.Now()
-	if !force && now.Sub(p.lastDraw) < redrawInterval {
+	s := p.stage(name)
+	if s.started {
 		return
 	}
-	if p.phase == "" {
+	s.started, s.total, s.startedAt = true, total, time.Now()
+}
+func (p *plainProgress) SetStageDetail(name, detail string) {
+	p.mu.Lock()
+	p.stage(name).detail = detail
+	p.mu.Unlock()
+}
+func (p *plainProgress) EndStage(name, detail string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	s := p.stage(name)
+	if !s.started || s.ended {
 		return
 	}
-	cur := int(p.current.Load())
-	if p.total > 0 {
-		if cur > p.total {
-			cur = p.total
+	if detail != "" {
+		s.detail = detail
+	}
+	s.ended, s.endedAt = true, time.Now()
+	p.printCompletedLocked(name, s)
+}
+func (p *plainProgress) printCompletedLocked(name string, s *stageState) {
+	if s.printed {
+		return
+	}
+	detail := phaseDetail(name, s)
+	if detail == "" {
+		detail = "complete"
+	}
+	fmt.Fprintf(p.w, "%s %s: %s (%s)\n", p.paint("36", "gomposer:"), name, detail, formatDuration(s.endedAt.Sub(s.startedAt)))
+	s.printed = true
+}
+func (p *plainProgress) Warning(message string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.warnings[message]; ok {
+		return
+	}
+	p.warnings[message] = struct{}{}
+	fmt.Fprintf(p.w, "%s %s %s\n", p.paint("36", "gomposer:"), p.paint("33", "warning:"), message)
+}
+func (p *plainProgress) RecordFetch(name string, bytes int, fromCache bool) {
+	p.mu.Lock()
+	recordFetch(p.stage("download"), name, bytes, fromCache)
+	p.mu.Unlock()
+}
+func (p *plainProgress) BeginFetch(n int)        { p.BeginStage("download", n) }
+func (p *plainProgress) IncFetch(label string)   { p.advance("download", label) }
+func (p *plainProgress) EndFetch()               { p.EndStage("download", "") }
+func (p *plainProgress) BeginExtract(n int)      { p.BeginStage("install", n) }
+func (p *plainProgress) IncExtract(label string) { p.advance("install", label) }
+func (p *plainProgress) EndExtract()             { p.EndStage("install", "") }
+func (p *plainProgress) BeginResolve(n int)      { p.BeginStage("resolve", n) }
+func (p *plainProgress) IncResolve(label string) { p.advance("resolve", label) }
+func (p *plainProgress) EndResolve()             { p.EndStage("resolve", "") }
+func (p *plainProgress) advance(name, label string) {
+	p.mu.Lock()
+	s := p.stage(name)
+	if !s.started {
+		s.started = true
+		s.startedAt = time.Now()
+	}
+	s.current++
+	s.label = label
+	p.mu.Unlock()
+}
+func (p *plainProgress) Done(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.failed {
+		return
+	}
+	verb := "installed"
+	if p.op == "update" {
+		verb = "updated"
+	}
+	if n == 0 {
+		fmt.Fprintf(p.w, "%s nothing to install\n", p.paint("32", "gomposer:"))
+		return
+	}
+	fmt.Fprintf(p.w, "%s %s %d package%s in %s\n", p.paint("32", "gomposer:"), verb, n, plural(n), formatDuration(time.Since(p.startedAt)))
+}
+func (p *plainProgress) Fail(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.failed {
+		return
+	}
+	p.failed = true
+	if name := activeStage(p.stages); name != "" {
+		fmt.Fprintf(p.w, "%s %s failed\n", p.paint("31", "gomposer:"), name)
+	}
+	renderPlainFailure(p.w, err)
+}
+
+type ttyProgress struct {
+	progressState
+	color    bool
+	width    int
+	frame    int
+	lastDraw time.Time
+	done     chan struct{}
+	stopOnce sync.Once
+	animWG   sync.WaitGroup
+}
+
+// newTTYProgress preserves the small constructor used by focused renderer
+// tests. Production construction goes through NewProgress.
+func newTTYProgress(w io.Writer) *ttyProgress {
+	p := newTTYProgressWithOptions(w, ProgressOptions{ForceTTY: true, Width: 80}, false)
+	// Focused unit tests drive redraws synchronously; stop the background
+	// animator so a test that intentionally omits Done cannot leak a goroutine.
+	p.stop()
+	return p
+}
+
+func newTTYProgressWithOptions(w io.Writer, opts ProgressOptions, color bool) *ttyProgress {
+	width := opts.Width
+	if width == 0 {
+		if f, ok := w.(*os.File); ok {
+			if n, _, err := term.GetSize(int(f.Fd())); err == nil {
+				width = n
+			}
 		}
-		bar := renderBar(cur, p.total)
-		fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d/%d  %s  %s",
-			p.phase, cur, p.total, bar, p.label)
+	}
+	if width <= 0 {
+		width = 80
+	}
+	p := &ttyProgress{progressState: newProgressState(w, opts), color: color, width: width, done: make(chan struct{})}
+	op := p.op
+	project := opts.ProjectDir
+	if project != "" {
+		project = filepath.Clean(project)
+	}
+	if project == "" {
+		fmt.Fprintf(w, "%s\n\n", p.paint("1;36", "gomposer "+op))
 	} else {
-		fmt.Fprintf(p.w, "\r\x1b[Kgomposer: %s %d  %s", p.phase, cur, p.label)
+		fmt.Fprintf(w, "%s %s\n\n", p.paint("1;36", "gomposer "+op), p.paint("2", project))
 	}
-	p.lastDraw = now
+	p.animWG.Add(1)
+	go p.animate()
+	return p
 }
 
-func renderBar(cur, total int) string {
+func (p *ttyProgress) animate() {
+	defer p.animWG.Done()
+	t := time.NewTicker(80 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			p.mu.Lock()
+			if p.activeLocked() != "" {
+				p.frame++
+				p.maybeDrawActiveLocked(true)
+			}
+			p.mu.Unlock()
+		case <-p.done:
+			return
+		}
+	}
+}
+func (p *ttyProgress) stop() {
+	p.stopOnce.Do(func() { close(p.done) })
+	p.animWG.Wait()
+}
+func (p *ttyProgress) paint(code, s string) string {
+	if !p.color || s == "" {
+		return s
+	}
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
+}
+func (p *ttyProgress) clearLocked() { fmt.Fprint(p.w, "\r\x1b[2K") }
+func (p *ttyProgress) BeginStage(name string, total int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	s := p.stage(name)
+	if s.started {
+		return
+	}
+	s.started = true
+	s.total = total
+	s.startedAt = time.Now()
+	p.maybeDrawActiveLocked(true)
+}
+func (p *ttyProgress) SetStageDetail(name, detail string) {
+	p.mu.Lock()
+	p.stage(name).detail = detail
+	p.mu.Unlock()
+}
+func (p *ttyProgress) EndStage(name, detail string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	s := p.stage(name)
+	if !s.started || s.ended {
+		return
+	}
+	if detail != "" {
+		s.detail = detail
+	}
+	s.ended = true
+	s.endedAt = time.Now()
+	p.flushLocked()
+	p.maybeDrawActiveLocked(true)
+}
+func (p *ttyProgress) activeLocked() string {
+	return activeStage(p.stages)
+}
+
+func activeStage(stages map[string]*stageState) string {
+	for _, name := range stageOrder {
+		if s := stages[name]; s != nil && s.started && !s.ended {
+			return name
+		}
+	}
+	return ""
+}
+func (p *ttyProgress) flushLocked() {
+	for _, name := range stageOrder {
+		s := p.stages[name]
+		if s == nil || !s.started {
+			continue
+		}
+		if !s.ended {
+			return
+		}
+		if s.printed {
+			continue
+		}
+		p.clearLocked()
+		detail := phaseDetail(name, s)
+		elapsed := formatDuration(s.endedAt.Sub(s.startedAt))
+		fmt.Fprintf(p.w, "%s %-11s %-*s %s\n", p.paint("32", "✓"), stageLabels[name], max(1, p.width-30), truncate(detail, max(1, p.width-30)), p.paint("2", elapsed))
+		s.printed = true
+	}
+}
+func (p *ttyProgress) maybeDrawActiveLocked(force bool) {
+	if !force && time.Since(p.lastDraw) < 50*time.Millisecond {
+		return
+	}
+	name := p.activeLocked()
+	if name == "" {
+		return
+	}
+	s := p.stage(name)
+	p.clearLocked()
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	icon := p.paint("36", frames[p.frame%len(frames)])
+	count := ""
+	if s.total > 0 {
+		count = fmt.Sprintf("%d/%d", min(s.current, s.total), s.total)
+	} else if s.current > 0 {
+		count = fmt.Sprintf("%d", s.current)
+	}
+	bar := ""
+	if p.width >= 72 && s.total > 0 {
+		bar = " " + p.paint("36", renderBar(s.current, s.total, 14))
+	}
+	prefix := fmt.Sprintf("%s %-11s %s%s ", icon, stageLabels[name], count, bar)
+	avail := p.width - visibleWidth(prefix)
+	label := truncate(s.label, max(0, avail))
+	fmt.Fprint(p.w, prefix, p.paint("2", label))
+	p.lastDraw = time.Now()
+}
+func (p *ttyProgress) Warning(message string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.warnings[message]; ok {
+		return
+	}
+	p.warnings[message] = struct{}{}
+	p.clearLocked()
+	fmt.Fprintf(p.w, "%s %s\n", p.paint("33", "⚠"), message)
+	p.maybeDrawActiveLocked(true)
+}
+func (p *ttyProgress) RecordFetch(name string, bytes int, fromCache bool) {
+	p.mu.Lock()
+	recordFetch(p.stage("download"), name, bytes, fromCache)
+	p.mu.Unlock()
+}
+func (p *ttyProgress) BeginFetch(n int)    { p.BeginStage("download", n) }
+func (p *ttyProgress) IncFetch(s string)   { p.advance("download", s) }
+func (p *ttyProgress) EndFetch()           { p.EndStage("download", "") }
+func (p *ttyProgress) BeginExtract(n int)  { p.BeginStage("install", n) }
+func (p *ttyProgress) IncExtract(s string) { p.advance("install", s) }
+func (p *ttyProgress) EndExtract()         { p.EndStage("install", "") }
+func (p *ttyProgress) BeginResolve(n int)  { p.BeginStage("resolve", n) }
+func (p *ttyProgress) IncResolve(s string) { p.advance("resolve", s) }
+func (p *ttyProgress) EndResolve()         { p.EndStage("resolve", "") }
+func (p *ttyProgress) advance(name, label string) {
+	p.mu.Lock()
+	s := p.stage(name)
+	if !s.started {
+		s.started = true
+		s.startedAt = time.Now()
+	}
+	s.current++
+	s.label = label
+	p.maybeDrawActiveLocked(false)
+	p.mu.Unlock()
+}
+func (p *ttyProgress) Done(n int) {
+	p.stop()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.failed {
+		return
+	}
+	p.clearLocked()
+	verb := "Installed"
+	if p.op == "update" {
+		verb = "Updated"
+	}
+	if n == 0 {
+		fmt.Fprintf(p.w, "%s Nothing to install\n", p.paint("32", "✓"))
+		return
+	}
+	fmt.Fprintf(p.w, "\n%s %s %d package%s in %s\n", p.paint("32", "✓"), verb, n, plural(n), formatDuration(time.Since(p.startedAt)))
+}
+func (p *ttyProgress) Fail(err error) {
+	p.stop()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.failed {
+		return
+	}
+	p.failed = true
+	p.clearLocked()
+	name := p.activeLocked()
+	if name != "" {
+		s := p.stage(name)
+		fmt.Fprintf(p.w, "%s %s failed after %s\n\n", p.paint("31", "✗"), stageLabels[name], formatDuration(time.Since(s.startedAt)))
+	}
+	renderTTYFailure(p.w, p.paint, err)
+}
+
+func phaseDetail(name string, s *stageState) string {
+	if s.detail != "" {
+		return s.detail
+	}
+	switch name {
+	case "resolve":
+		n := s.current
+		if s.total > 0 {
+			n = s.total
+		}
+		if n > 0 {
+			return fmt.Sprintf("%d packages", n)
+		}
+	case "download":
+		downloaded := s.current - s.cacheHits
+		if downloaded < 0 {
+			downloaded = 0
+		}
+		parts := []string{fmt.Sprintf("%d downloaded", downloaded)}
+		if s.cacheHits > 0 {
+			parts = append(parts, fmt.Sprintf("%d cached", s.cacheHits))
+		}
+		if s.bytes > 0 {
+			parts = append(parts, humanBytes(s.bytes))
+		}
+		return strings.Join(parts, " · ")
+	case "install":
+		n := s.current
+		if s.total > 0 {
+			n = s.total
+		}
+		return fmt.Sprintf("%d packages", n)
+	}
+	return "complete"
+}
+
+func recordFetch(s *stageState, name string, bytes int, fromCache bool) {
+	if s.fetchOutcomes == nil {
+		s.fetchOutcomes = make(map[string]bool)
+	}
+	prior, seen := s.fetchOutcomes[name]
+	if seen {
+		// A speculative download followed by an authoritative warm-store
+		// verification is still one download, not one cache hit.
+		if !prior || fromCache {
+			return
+		}
+		s.cacheHits--
+	} else if fromCache {
+		s.cacheHits++
+	}
+	s.fetchOutcomes[name] = fromCache
+	if !fromCache {
+		s.bytes += int64(bytes)
+	}
+}
+func renderBar(cur, total, width int) string {
 	if total <= 0 {
-		return "[" + repeat(" ", barWidth) + "]"
+		return "[" + strings.Repeat(" ", width) + "]"
 	}
-	filled := cur * barWidth / total
-	if filled > barWidth {
-		filled = barWidth
-	}
-	return "[" + repeat("=", filled) + repeat(" ", barWidth-filled) + "]"
+	cur = min(cur, total)
+	filled := cur * width / total
+	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", width-filled) + "]"
 }
-
-func repeat(s string, n int) string {
+func visibleWidth(s string) int {
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i < 0 {
+			break
+		}
+		j := strings.IndexByte(s[i:], 'm')
+		if j < 0 {
+			break
+		}
+		s = s[:i] + s[i+j+1:]
+	}
+	return utf8.RuneCountInString(s)
+}
+func truncate(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	out := make([]byte, 0, len(s)*n)
-	for i := 0; i < n; i++ {
-		out = append(out, s...)
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	return string(out)
+	if n == 1 {
+		return "…"
+	}
+	return string(r[:n-1]) + "…"
 }
-
+func formatDuration(d time.Duration) string {
+	if d < time.Millisecond {
+		return "<1ms"
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return d.Round(10 * time.Millisecond).String()
+}
 func plural(n int) string {
 	if n == 1 {
 		return ""
 	}
 	return "s"
+}
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

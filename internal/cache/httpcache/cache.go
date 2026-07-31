@@ -110,8 +110,20 @@ func (c *Cache) Get(ctx context.Context, url string) ([]byte, error) {
 		}
 		return fresh, nil
 	}
-	return nil, fmt.Errorf("httpcache: unexpected status %d for %s", resp.StatusCode, url)
+	return nil, &HTTPStatusError{URL: url, StatusCode: resp.StatusCode}
 }
+
+// HTTPStatusError preserves the response status for user-facing diagnostics.
+type HTTPStatusError struct {
+	URL        string
+	StatusCode int
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("httpcache: unexpected status %d for %s", e.StatusCode, e.URL)
+}
+
+func (e *HTTPStatusError) HTTPStatusCode() int { return e.StatusCode }
 
 func (c *Cache) paths(url string) (hdr, body string) {
 	sum := sha256.Sum256([]byte(url))

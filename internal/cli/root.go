@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +20,7 @@ var (
 	flagQuiet              bool
 	flagIgnorePlatform     bool
 	flagIgnorePlatformReqs []string
+	flagColor              string
 )
 
 func newRootCmd(version string) *cobra.Command {
@@ -36,11 +39,29 @@ func newRootCmd(version string) *cobra.Command {
 	root.PersistentFlags().BoolVar(&flagIgnorePlatform, "ignore-platform", false, "skip ALL platform requirement checks (php / ext-*)")
 	root.PersistentFlags().StringArrayVar(&flagIgnorePlatformReqs, "ignore-platform-req", nil,
 		"skip a specific platform requirement (repeatable, e.g. --ignore-platform-req=php --ignore-platform-req=ext-curl)")
+	root.PersistentFlags().StringVar(&flagColor, "color", string(ColorAuto), "color output: auto, always, or never")
+	root.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		switch ColorMode(flagColor) {
+		case ColorAuto, ColorAlways, ColorNever:
+			return nil
+		default:
+			return fmt.Errorf("invalid --color value %q (want auto, always, or never)", flagColor)
+		}
+	}
 
 	root.AddCommand(newInstallCmd())
 	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newCacheCmd())
 	return root
+}
+
+// ExitCode maps command errors to process exit codes. Cancellation follows
+// the conventional shell code 130; all other failures remain 1.
+func ExitCode(err error) int {
+	if errors.Is(err, context.Canceled) {
+		return 130
+	}
+	return 1
 }
 
 // Execute runs the CLI and returns an error on failure. Errors are printed
@@ -50,7 +71,9 @@ func newRootCmd(version string) *cobra.Command {
 func Execute(version string) error {
 	root := newRootCmd(version)
 	if err := root.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "gomposer: %v\n", err)
+		if !isHandled(err) {
+			fmt.Fprintf(os.Stderr, "gomposer: %v\n", err)
+		}
 		return err
 	}
 	return nil

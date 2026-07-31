@@ -56,11 +56,11 @@ func TestTTYProgressEmitsClearAndProgress(t *testing.T) {
 	p.EndFetch()
 
 	out := buf.String()
-	if !strings.Contains(out, "\r\x1b[K") {
-		t.Errorf("expected line-clear escape \\r\\x1b[K in output, got %q", out)
+	if !strings.Contains(out, "\r\x1b[2K") {
+		t.Errorf("expected line-clear escape \\r\\x1b[2K in output, got %q", out)
 	}
-	if !strings.Contains(out, "fetching") {
-		t.Errorf("expected phase label \"fetching\", got %q", out)
+	if !strings.Contains(out, "Download") {
+		t.Errorf("expected phase label \"Download\", got %q", out)
 	}
 	if !strings.Contains(out, "2/2") {
 		t.Errorf("expected final 2/2 count, got %q", out)
@@ -85,7 +85,7 @@ func TestTTYProgressDoneSummary(t *testing.T) {
 		t.Errorf("expected final summary with package count, got %q", out)
 	}
 	// The summary must be on its own line — i.e. preceded by the line clear.
-	if !strings.Contains(out, "\r\x1b[K") {
+	if !strings.Contains(out, "\r\x1b[2K") {
 		t.Errorf("expected final clear before summary, got %q", out)
 	}
 }
@@ -99,8 +99,8 @@ func TestTTYProgressThrottle(t *testing.T) {
 	}
 	// Without sleeping, only the BeginFetch draw + at most one throttled
 	// redraw should have fired. We don't assert an exact byte count, but the
-	// number of \r\x1b[K sequences should be far less than 50.
-	clears := strings.Count(buf.String(), "\r\x1b[K")
+	// number of \r\x1b[2K sequences should be far less than 50.
+	clears := strings.Count(buf.String(), "\r\x1b[2K")
 	if clears > 5 {
 		t.Errorf("throttle ineffective: %d redraws for 50 increments", clears)
 	}
@@ -116,16 +116,13 @@ func TestTTYProgressEmitsResolveLine(t *testing.T) {
 	p.EndResolve()
 
 	out := buf.String()
-	if !strings.Contains(out, "\r\x1b[K") {
+	if !strings.Contains(out, "\r\x1b[2K") {
 		t.Errorf("expected line-clear escape in output, got %q", out)
 	}
-	if !strings.Contains(out, "resolving") {
-		t.Errorf("expected phase label \"resolving\", got %q", out)
+	if !strings.Contains(out, "Resolve") {
+		t.Errorf("expected phase label \"Resolve\", got %q", out)
 	}
-	if !strings.Contains(out, "monolog/monolog") {
-		t.Errorf("expected most recent package label, got %q", out)
-	}
-	if !strings.Contains(out, "resolved 2 packages") {
+	if !strings.Contains(out, "2 packages") {
 		t.Errorf("expected phase summary, got %q", out)
 	}
 	// Hint=0 → no denominator, no bar. Match /N/M/ shapes only; package
