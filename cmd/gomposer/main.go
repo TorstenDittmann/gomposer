@@ -18,7 +18,7 @@ var (
 
 func main() {
 	if err := cli.Execute(versionString()); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }
 

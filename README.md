@@ -56,6 +56,7 @@ Common flags:
 | `--no-dev` | Skip `require-dev`; enforce platform requirements strictly. |
 | `-q`, `--quiet` | Suppress non-error output. |
 | `-v`, `--verbose` | Print a per-phase timing breakdown. |
+| `--color=auto\|always\|never` | Control color in human-readable terminal output. |
 | `--ignore-platform` | Skip every platform check (`php`, `ext-*`, `lib-*`). |
 | `--ignore-platform-req=<name>` | Skip a specific platform requirement (repeatable). |
 | `--no-scripts` | Do not execute user-defined scripts. |
@@ -64,6 +65,12 @@ Common flags:
 | `--project <dir>` | Point at a project directory other than the current one. |
 
 Run `gomposer install --help` for the full list.
+
+Interactive terminals show a live install checklist with package progress and
+phase timings. Redirected stderr and CI receive one stable line per completed
+phase instead; `NO_COLOR` and `TERM=dumb` are honored in automatic color mode.
+Warnings temporarily clear and redraw the active row, so they remain readable
+without damaging progress output.
 
 ## Workspaces (monorepo)
 

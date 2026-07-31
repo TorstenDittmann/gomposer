@@ -48,6 +48,7 @@ Available on both dependency commands.
 |---|---|
 | `-v`, `--verbose` | Print a per-phase timing breakdown after the install completes. See [Verbose Output](./verbose-output.md). |
 | `-q`, `--quiet` | Suppress non-error output. |
+| `--color=auto\|always\|never` | Select automatic, forced, or disabled color. Automatic mode honors `NO_COLOR` and `TERM=dumb`. Animation remains TTY-only. |
 | `--no-dev` | Skip `require-dev`. Also enforces platform requirements strictly (a mismatch fails the install rather than warns). |
 | `--no-scripts` | Skip every user-defined script entry — useful for CI or when debugging a resolver problem. |
 | `--ignore-platform` | Skip every platform requirement check (`php`, `ext-*`, `lib-*`). |
@@ -68,6 +69,10 @@ Available on both dependency commands.
 - `1` — anything else. Details are printed to stderr with a `gomposer: <phase>:` prefix.
 
 gomposer is strictly non-interactive; no prompts, no confirmations.
+
+Install and update adapt to their output destination. A terminal gets a live
+checklist; CI and redirected stderr get one stable line per completed phase.
+See [Terminal Output](./terminal-output.md) for examples and color behavior.
 
 ## Environment
 

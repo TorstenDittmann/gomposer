@@ -41,6 +41,43 @@ func progressOrNoop(p Progress) Progress {
 	return p
 }
 
+// journeyProgress is implemented by the CLI's adaptive reporter. Keeping it
+// optional preserves the small Progress contract used by package tests and
+// embedders while allowing the production CLI to report the full pipeline.
+type journeyProgress interface {
+	Progress
+	BeginStage(name string, total int)
+	EndStage(name, detail string)
+	Warning(message string)
+	RecordFetch(name string, bytes int, fromCache bool)
+}
+
+func beginStage(p Progress, name string, total int) {
+	if j, ok := p.(journeyProgress); ok {
+		j.BeginStage(name, total)
+	}
+}
+
+func endStage(p Progress, name, detail string) {
+	if j, ok := p.(journeyProgress); ok {
+		j.EndStage(name, detail)
+	}
+}
+
+func reportWarning(p Progress, fallback io.Writer, quiet bool, message string) {
+	if quiet {
+		return
+	}
+	if j, ok := p.(journeyProgress); ok {
+		j.Warning(message)
+		return
+	}
+	if fallback == nil {
+		fallback = os.Stderr
+	}
+	fmt.Fprintln(fallback, "gomposer: "+message)
+}
+
 type noopProgress struct{}
 
 func (noopProgress) BeginFetch(int)    {}
@@ -77,7 +114,7 @@ type pipelineState struct {
 	opts          Options
 	manifest      *manifest.Manifest
 	manifestBytes []byte
-	lockBytes     []byte // existing lock contents, if any (nil means none)
+	lockBytes     []byte             // existing lock contents, if any (nil means none)
 	platform      *platform.Platform // structured, may be nil when ignore-all
 	platformStr   string             // fingerprint string (cache key input)
 	cacheKey      string
@@ -315,7 +352,6 @@ func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int, 
 		ticker = newFetchTicker(prog)
 		ticker.prog.BeginFetch(len(pkgs))
 	}
-	defer ticker.prog.EndFetch()
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
@@ -340,6 +376,7 @@ func fetchAll(ctx context.Context, pkgs []lock.Package, f Fetcher, workers int, 
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
+	ticker.prog.EndFetch()
 	return keys, nil
 }
 
@@ -382,7 +419,6 @@ func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package,
 	}
 	prog = progressOrNoop(prog)
 	prog.BeginExtract(len(pkgs))
-	defer prog.EndExtract()
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
@@ -401,7 +437,11 @@ func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package,
 			return nil
 		})
 	}
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	prog.EndExtract()
+	return nil
 }
 
 func generateAutoloader(ctx context.Context, projectDir string, pkgs []lock.Package, m *manifest.Manifest, a Autoloader) error {
@@ -464,6 +504,7 @@ func firePhase(ctx context.Context, t *Timings, event scripts.Event, opts Option
 
 // runFullPipeline ties all phases together.
 func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool, t *Timings) error {
+	beginStage(opts.Progress, "prepare", 0)
 	if err := defaultDeps(&opts, m, t); err != nil {
 		return err
 	}
@@ -485,6 +526,13 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	if err != nil {
 		return err
 	}
+	prepareDetail := "ready"
+	if len(ps.workspaces) == 1 {
+		prepareDetail = "1 workspace"
+	} else if len(ps.workspaces) > 1 {
+		prepareDetail = fmt.Sprintf("%d workspaces", len(ps.workspaces))
+	}
+	endStage(opts.Progress, "prepare", prepareDetail)
 
 	// mprefetch warms resolver-metadata caches in the background while the
 	// resolver runs. defer'd unconditionally so every early return below
@@ -505,6 +553,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		}
 	}()
 
+	beginStage(opts.Progress, "resolve", 0)
 	prefetch, fetchTick := maybeStartPrefetch(ctx, ps, opts, forceResolve)
 
 	t.Begin("resolve")
@@ -517,7 +566,15 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	// invariant visible in the pipeline rather than relying on the
 	// renderer, and covers a zero-Lookup resolve (fromCache=false but the
 	// resolver made no Lookup calls) too.
-	if !fromCache && opts.Progress != nil {
+	if _, rich := opts.Progress.(journeyProgress); rich {
+		if err == nil {
+			detail := fmt.Sprintf("%d packages", len(lockFile.Packages)+len(lockFile.PackagesDev))
+			if fromCache {
+				detail += " · cached"
+			}
+			endStage(opts.Progress, "resolve", detail)
+		}
+	} else if !fromCache && opts.Progress != nil {
 		opts.Progress.EndResolve()
 	}
 	if fromCache {
@@ -546,7 +603,10 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		if w == nil {
 			w = os.Stderr
 		}
-		plugins.Render(w, warnings)
+		for _, warning := range warnings {
+			reportWarning(opts.Progress, w, opts.Quiet,
+				fmt.Sprintf("gomposer does not run plugins: %s@%s (type=%s) — %s", warning.Name, warning.Version, warning.Type, warning.Message))
+		}
 	}
 
 	all := append([]lock.Package(nil), lockFile.Packages...)
@@ -556,19 +616,33 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 
 	// Platform warnings: emit, persist on the lockfile so cache-hit runs can
 	// re-emit them, and (in --no-dev) escalate to a hard error.
-	warnings, err := evaluatePlatformWarnings(all, ps.platform, ps.ignoreSet, opts.NoDev, opts.Quiet, os.Stderr)
+	stderr := opts.WarnWriter
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+	_, richOutput := opts.Progress.(journeyProgress)
+	warnings, err := evaluatePlatformWarnings(all, ps.platform, ps.ignoreSet, opts.NoDev, opts.Quiet || richOutput, stderr)
 	if err != nil {
 		prefetch.Wait()
 		return err
+	}
+	if richOutput {
+		for _, warning := range warnings {
+			reportWarning(opts.Progress, stderr, opts.Quiet, warning)
+		}
 	}
 	if len(warnings) > 0 {
 		lockFile.Warnings = warnings
 	} else if !opts.NoDev {
 		// Replay-on-cache-hit: if we're using a cached/existing lock and it
 		// already has warnings, re-emit them now.
-		if !opts.Quiet {
+		if !opts.Quiet && !richOutput {
 			for _, w := range lockFile.Warnings {
-				fmt.Fprintln(os.Stderr, "gomposer: "+w)
+				fmt.Fprintln(stderr, "gomposer: "+w)
+			}
+		} else if richOutput {
+			for _, warning := range lockFile.Warnings {
+				reportWarning(opts.Progress, stderr, opts.Quiet, warning)
 			}
 		}
 	}
@@ -616,6 +690,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		return err
 	}
 
+	beginStage(opts.Progress, "autoload", 0)
 	t.Begin("autoload")
 	alErr := generateAutoloader(ctx, opts.ProjectDir, all, m, opts.Autoloader)
 	t.End("autoload")
@@ -626,7 +701,9 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 	if err := firePhase(ctx, t, scripts.EventPostAutoloadDump, opts, m); err != nil {
 		return err
 	}
+	endStage(opts.Progress, "autoload", "generated")
 
+	beginStage(opts.Progress, "finalize", 0)
 	t.Begin("write lock")
 	wlErr := writeLock(opts.ProjectDir, lockFile)
 	t.End("write lock")
@@ -638,6 +715,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		return err
 	}
 	t.FlushScripts()
+	endStage(opts.Progress, "finalize", "lockfile written")
 	progressOrNoop(opts.Progress).Done(len(all))
 	return nil
 }
@@ -690,9 +768,19 @@ func evaluatePlatformWarnings(
 		}
 	}
 	if noDev && len(hardFails) > 0 {
-		return warnings, fmt.Errorf("orchestrator: platform requirements unsatisfied (--no-dev): %d violation(s)", len(hardFails))
+		return warnings, &platformRequirementsError{violations: hardFails}
 	}
 	return warnings, nil
+}
+
+type platformRequirementsError struct{ violations []string }
+
+func (e *platformRequirementsError) Error() string {
+	return fmt.Sprintf("orchestrator: platform requirements unsatisfied (--no-dev): %d violation(s)", len(e.violations))
+}
+
+func (e *platformRequirementsError) DiagnosticDetails() []string {
+	return append([]string(nil), e.violations...)
 }
 
 func formatViolation(pkg string, v platform.Violation) string {
@@ -931,8 +1019,13 @@ func defaultDeps(opts *Options, m *manifest.Manifest, t *Timings) error {
 			return err
 		}
 		f := realfetcher.New(s, nil)
-		if t != nil {
-			f.OnFetch = t.AddFetch
+		f.OnFetch = func(name string, bytes int, fromCache bool) {
+			if t != nil {
+				t.AddFetch(name, bytes, fromCache)
+			}
+			if j, ok := opts.Progress.(journeyProgress); ok {
+				j.RecordFetch(name, bytes, fromCache)
+			}
 		}
 		if opts.Fetcher == nil {
 			opts.Fetcher = &fetcherAdapter{f: f, store: s, vcsClients: vcsClients}

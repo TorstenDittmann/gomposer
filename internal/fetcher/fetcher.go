@@ -78,7 +78,7 @@ func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) (string
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetcher: %s: status %d", pv.Name, resp.StatusCode)
+		return "", &HTTPStatusError{Package: pv.Name, StatusCode: resp.StatusCode}
 	}
 
 	// Stream into a temp file inside the store dir (so the rename is
@@ -143,3 +143,16 @@ func (f *Fetcher) Fetch(ctx context.Context, pv registry.PackageVersion) (string
 // ErrShaMismatch is returned by Fetch when the downloaded bytes do not hash
 // to the expected sha. Use errors.Is to test.
 var ErrShaMismatch = errors.New("dist sha mismatch")
+
+// HTTPStatusError preserves the response status for user-facing diagnostics
+// without requiring the CLI to parse an error string.
+type HTTPStatusError struct {
+	Package    string
+	StatusCode int
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("fetcher: %s: status %d", e.Package, e.StatusCode)
+}
+
+func (e *HTTPStatusError) HTTPStatusCode() int { return e.StatusCode }
