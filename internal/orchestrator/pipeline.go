@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -384,6 +385,59 @@ func vendorPath(projectDir, packageName string) string {
 	return filepath.Join(projectDir, "vendor", filepath.FromSlash(packageName))
 }
 
+// pruneVendor removes packages recorded by the previous lock that are absent
+// from the newly resolved package set. Directories not owned by the old lock
+// are never touched. Package names are validated before RemoveAll so a corrupt
+// or hand-edited lockfile cannot escape vendor/.
+func pruneVendor(projectDir string, previousLock []byte, current []lock.Package) error {
+	if len(previousLock) == 0 {
+		return nil
+	}
+	previous, err := lock.Decode(previousLock)
+	if err != nil {
+		return nil // an unreadable old lock is not authoritative enough to prune from
+	}
+	keep := make(map[string]struct{}, len(current))
+	for _, pkg := range current {
+		keep[pkg.Name] = struct{}{}
+	}
+	old := append(append([]lock.Package(nil), previous.Packages...), previous.PackagesDev...)
+	for _, pkg := range old {
+		if _, ok := keep[pkg.Name]; ok {
+			continue
+		}
+		dest, err := safeVendorPackagePath(projectDir, pkg.Name)
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(dest); err != nil {
+			return fmt.Errorf("orchestrator: prune %s: %w", pkg.Name, err)
+		}
+		// Best effort: remove the vendor namespace when it became empty.
+		_ = os.Remove(filepath.Dir(dest))
+	}
+	return nil
+}
+
+func safeVendorPackagePath(projectDir, packageName string) (string, error) {
+	if strings.Count(packageName, "/") != 1 {
+		return "", fmt.Errorf("orchestrator: unsafe package name %q in lockfile", packageName)
+	}
+	parts := strings.Split(packageName, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.Contains(part, `\`) {
+			return "", fmt.Errorf("orchestrator: unsafe package name %q in lockfile", packageName)
+		}
+	}
+	vendorRoot := filepath.Clean(filepath.Join(projectDir, "vendor"))
+	dest := filepath.Clean(vendorPath(projectDir, packageName))
+	rel, err := filepath.Rel(vendorRoot, dest)
+	if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("orchestrator: unsafe package name %q in lockfile", packageName)
+	}
+	return dest, nil
+}
+
 // backfillSha sets pkg.Dist.Sha256 from keys[pkg.Name] when the dist sha is
 // empty. Packagist v2 sometimes returns empty shasums for older entries; the
 // fetcher computes the real sha during streaming download and that becomes
@@ -684,6 +738,9 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 		if err := linkWorkspaces(opts.ProjectDir, ps.workspaces); err != nil {
 			return err
 		}
+	}
+	if err := pruneVendor(opts.ProjectDir, ps.lockBytes, all); err != nil {
+		return err
 	}
 
 	if err := firePhase(ctx, t, scripts.EventPreAutoloadDump, opts, m); err != nil {

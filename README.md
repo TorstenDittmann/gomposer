@@ -45,6 +45,8 @@ gomposer install          # install from composer.json, using gomposer.lock if p
 gomposer update           # re-resolve everything and rewrite gomposer.lock + vendor/
 gomposer require psr/log:^3.0             # add a production dependency and install
 gomposer require --dev phpunit/phpunit    # add a development dependency and install
+gomposer remove psr/log                    # remove a production dependency and update
+gomposer remove --dev phpunit/phpunit      # remove a development dependency and update
 gomposer cache            # print the cache path and per-layer disk usage
 gomposer cache dir        # print only the cache path
 gomposer cache clear      # clear every cache layer
@@ -74,6 +76,13 @@ compatible version for the lockfile. If resolution or installation fails,
 gomposer restores both `composer.json` and `gomposer.lock`. From inside a
 workspace, the selected workspace manifest is updated while the complete
 workspace graph is resolved at the repository root.
+
+`gomposer remove` accepts one or more direct dependency names. Use `--dev` to
+remove entries from `require-dev`; omitting it targets `require`. The remaining
+graph is re-resolved, packages no longer present in the new lockfile are pruned
+from `vendor/`, and the manifest and lockfile are restored if the update fails.
+Workspace removal follows the same selected-manifest/root-resolution behavior
+as `require`.
 
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed
