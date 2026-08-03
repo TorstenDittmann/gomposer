@@ -43,6 +43,8 @@ Inside a project that has a `composer.json`:
 ```sh
 gomposer install          # install from composer.json, using gomposer.lock if present
 gomposer update           # re-resolve everything and rewrite gomposer.lock + vendor/
+gomposer require psr/log:^3.0             # add a production dependency and install
+gomposer require --dev phpunit/phpunit    # add a development dependency and install
 gomposer cache            # print the cache path and per-layer disk usage
 gomposer cache dir        # print only the cache path
 gomposer cache clear      # clear every cache layer
@@ -65,6 +67,13 @@ Common flags:
 | `--project <dir>` | Point at a project directory other than the current one. |
 
 Run `gomposer install --help` for the full list.
+
+`gomposer require` accepts one or more `package[:constraint]` arguments. When
+the constraint is omitted, `*` is written and the resolver selects the newest
+compatible version for the lockfile. If resolution or installation fails,
+gomposer restores both `composer.json` and `gomposer.lock`. From inside a
+workspace, the selected workspace manifest is updated while the complete
+workspace graph is resolved at the repository root.
 
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed

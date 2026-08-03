@@ -233,6 +233,6 @@ These are mentioned so future readers do not assume they were forgotten.
 - PSR-0. Detected and warned.
 - `lib-*` platform constraints. Detected and warned.
 - `path` and `package` repository types. Post-MVP.
-- `require`, `remove`, `show`, `why`, `outdated`, `audit`, `dump-autoload`, and all other Composer subcommands beyond `install`/`update`. Post-MVP.
+- `remove`, `show`, `why`, `outdated`, `audit`, `dump-autoload`, and other Composer subcommands beyond `install`/`update`/`require`. Post-MVP. `require` is implemented with production/dev manifest mutation and transactional rollback on failure.
 - Windows. Post-stage-4.
 - Interactive auth prompts on 401/403. Stage-2 polish item; deferred.
