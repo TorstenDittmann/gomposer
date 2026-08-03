@@ -169,6 +169,7 @@ func workerCount(opt int) int {
 }
 
 func run(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve bool) error {
+	t := NewTimings()
 	// A manifest with no requires and no workspaces has nothing to resolve
 	// or lock. Workspaces still need the full pipeline even when the root
 	// manifest itself declares no direct requires — that's the common
@@ -176,22 +177,100 @@ func run(ctx context.Context, opts Options, m *manifest.Manifest, forceResolve b
 	// aggregate manifest built from its workspaces may have requires of its
 	// own, plus the lockfile needs the synthetic workspace entries.
 	if len(m.Require) == 0 && len(m.RequireDev) == 0 && len(m.Workspaces) == 0 {
-		if opts.Progress != nil {
-			opts.Progress.Done(0)
+		if !forceResolve {
+			if opts.Progress != nil {
+				opts.Progress.Done(0)
+			}
+			return nil
 		}
-		return nil
+		err := runEmptyUpdate(ctx, opts, m, t)
+		renderTimings(opts, t)
+		return err
 	}
 	if opts.NoNetwork {
 		return errors.New("orchestrator: NoNetwork is set but manifest has requires")
 	}
-	t := NewTimings()
 	err := runFullPipeline(ctx, opts, m, forceResolve, t)
-	if opts.Verbose && !opts.Quiet {
-		w := opts.WarnWriter
-		if w == nil {
-			w = os.Stderr
-		}
-		t.Render(w)
-	}
+	renderTimings(opts, t)
 	return err
+}
+
+func renderTimings(opts Options, t *Timings) {
+	if !opts.Verbose || opts.Quiet {
+		return
+	}
+	w := opts.WarnWriter
+	if w == nil {
+		w = os.Stderr
+	}
+	t.Render(w)
+}
+
+// runEmptyUpdate handles the important "remove the final dependency" case.
+// There is no resolver or network work, but update still needs to prune the
+// packages from the previous lock, regenerate the root autoloader, and write
+// an authoritative empty lockfile.
+func runEmptyUpdate(ctx context.Context, opts Options, m *manifest.Manifest, t *Timings) error {
+	beginStage(opts.Progress, "prepare", 0)
+	if opts.Autoloader == nil {
+		opts.Autoloader = &autoloaderAdapter{}
+	}
+	if opts.Scripts == nil && !opts.NoScripts {
+		opts.Scripts = scripts.New()
+	}
+	if err := firePhase(ctx, t, scripts.EventPreUpdate, opts, m); err != nil {
+		return err
+	}
+
+	t.Begin("read manifest")
+	ps, err := newPipelineState(opts, m)
+	t.End("read manifest")
+	if err != nil {
+		return err
+	}
+	endStage(opts.Progress, "prepare", "ready")
+	beginStage(opts.Progress, "resolve", 0)
+	endStage(opts.Progress, "resolve", "0 packages")
+
+	prog := progressOrNoop(opts.Progress)
+	prog.BeginFetch(0)
+	prog.EndFetch()
+	t.Begin("materialize")
+	if err := pruneVendor(opts.ProjectDir, ps.lockBytes, nil); err != nil {
+		t.End("materialize")
+		return err
+	}
+	t.End("materialize")
+	prog.BeginExtract(0)
+	prog.EndExtract()
+
+	if err := firePhase(ctx, t, scripts.EventPreAutoloadDump, opts, m); err != nil {
+		return err
+	}
+	beginStage(opts.Progress, "autoload", 0)
+	t.Begin("autoload")
+	err = generateAutoloader(ctx, opts.ProjectDir, nil, m, opts.Autoloader)
+	t.End("autoload")
+	if err != nil {
+		return err
+	}
+	if err := firePhase(ctx, t, scripts.EventPostAutoloadDump, opts, m); err != nil {
+		return err
+	}
+	endStage(opts.Progress, "autoload", "generated")
+
+	beginStage(opts.Progress, "finalize", 0)
+	t.Begin("write lock")
+	err = writeLock(opts.ProjectDir, buildLockFile(ps, nil))
+	t.End("write lock")
+	if err != nil {
+		return err
+	}
+	if err := firePhase(ctx, t, scripts.EventPostUpdate, opts, m); err != nil {
+		return err
+	}
+	t.FlushScripts()
+	endStage(opts.Progress, "finalize", "lockfile written")
+	prog.Done(0)
+	return nil
 }

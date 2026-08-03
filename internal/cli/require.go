@@ -174,21 +174,16 @@ func updateManifestRequirements(data []byte, specs []requirementSpec, dev bool) 
 		delete(other, spec.Name)
 	}
 
-	targetJSON, err := json.Marshal(target)
-	if err != nil {
+	if err := setRequirementMap(doc, targetField, target); err != nil {
 		return nil, err
 	}
-	doc[targetField] = targetJSON
-	if len(other) == 0 {
-		delete(doc, otherField)
-	} else {
-		otherJSON, err := json.Marshal(other)
-		if err != nil {
-			return nil, err
-		}
-		doc[otherField] = otherJSON
+	if err := setRequirementMap(doc, otherField, other); err != nil {
+		return nil, err
 	}
+	return encodeManifestDocument(doc)
+}
 
+func encodeManifestDocument(doc map[string]json.RawMessage) ([]byte, error) {
 	var out bytes.Buffer
 	enc := json.NewEncoder(&out)
 	enc.SetEscapeHTML(false)
@@ -202,6 +197,19 @@ func updateManifestRequirements(data []byte, specs []requirementSpec, dev bool) 
 		return nil, fmt.Errorf("encode composer.json: %w", err)
 	}
 	return out.Bytes(), nil
+}
+
+func setRequirementMap(doc map[string]json.RawMessage, field string, reqs map[string]string) error {
+	if len(reqs) == 0 {
+		delete(doc, field)
+		return nil
+	}
+	raw, err := json.Marshal(reqs)
+	if err != nil {
+		return err
+	}
+	doc[field] = raw
+	return nil
 }
 
 func decodeRequirementMap(raw json.RawMessage, field string) (map[string]string, error) {
@@ -240,32 +248,41 @@ func snapshotFile(path string) (fileSnapshot, error) {
 }
 
 func requireTransaction(ctx context.Context, manifestPath, lockPath string, specs []requirementSpec, dev bool, opts orchestrator.Options) error {
+	return dependencyTransaction(ctx, "require", manifestPath, lockPath, opts, requireFn, func(data []byte) ([]byte, error) {
+		return updateManifestRequirements(data, specs, dev)
+	})
+}
+
+type dependencyUpdateRunner func(context.Context, orchestrator.Options) error
+type manifestMutation func([]byte) ([]byte, error)
+
+func dependencyTransaction(ctx context.Context, operation, manifestPath, lockPath string, opts orchestrator.Options, run dependencyUpdateRunner, mutate manifestMutation) error {
 	manifestBefore, err := snapshotFile(manifestPath)
 	if err != nil {
-		return fmt.Errorf("require: read composer.json: %w", err)
+		return fmt.Errorf("%s: read composer.json: %w", operation, err)
 	}
 	if !manifestBefore.exists {
-		return fmt.Errorf("require: read composer.json: %w", &os.PathError{Op: "open", Path: manifestPath, Err: os.ErrNotExist})
+		return fmt.Errorf("%s: read composer.json: %w", operation, &os.PathError{Op: "open", Path: manifestPath, Err: os.ErrNotExist})
 	}
 	lockBefore, err := snapshotFile(lockPath)
 	if err != nil {
-		return fmt.Errorf("require: read gomposer.lock: %w", err)
+		return fmt.Errorf("%s: read gomposer.lock: %w", operation, err)
 	}
-	updated, err := updateManifestRequirements(manifestBefore.data, specs, dev)
+	updated, err := mutate(manifestBefore.data)
 	if err != nil {
 		return err
 	}
 	if err := writeAtomic(manifestPath, updated, manifestBefore.mode); err != nil {
-		return fmt.Errorf("require: write composer.json: %w", err)
+		return fmt.Errorf("%s: write composer.json: %w", operation, err)
 	}
 
-	if err := requireFn(ctx, opts); err != nil {
+	if err := run(ctx, opts); err != nil {
 		restoreErr := errors.Join(
 			restoreFile(manifestPath, manifestBefore),
 			restoreFile(lockPath, lockBefore),
 		)
 		if restoreErr != nil {
-			return errors.Join(err, fmt.Errorf("require: rollback failed: %w", restoreErr))
+			return errors.Join(err, fmt.Errorf("%s: rollback failed: %w", operation, restoreErr))
 		}
 		return err
 	}

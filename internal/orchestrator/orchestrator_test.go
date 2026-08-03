@@ -47,6 +47,110 @@ func TestInstallReadsManifest(t *testing.T) {
 	}
 }
 
+func TestUpdateEmptyManifestPrunesVendorAndRewritesLock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{"name":"acme/app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldLock := &lock.File{
+		SchemaVersion: lock.SchemaVersion,
+		Packages: []lock.Package{
+			{Name: "monolog/monolog", Version: "3.0.0"},
+			{Name: "psr/log", Version: "3.0.0"},
+		},
+	}
+	lockBytes, err := oldLock.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), lockBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"monolog/monolog", "psr/log"} {
+		if err := os.MkdirAll(filepath.Join(dir, "vendor", filepath.FromSlash(name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gen := &fakeAutoloader{}
+	if err := Update(context.Background(), Options{
+		ProjectDir:         dir,
+		NoScripts:          true,
+		IgnorePlatformReqs: []string{"*"},
+		Autoloader:         gen,
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if gen.called != 1 || gen.gotPackages != 0 {
+		t.Errorf("autoloader calls=%d packages=%d", gen.called, gen.gotPackages)
+	}
+	for _, name := range []string{"monolog/monolog", "psr/log"} {
+		if _, err := os.Stat(filepath.Join(dir, "vendor", filepath.FromSlash(name))); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("stale vendor package %s remains: %v", name, err)
+		}
+	}
+	newLockBytes, err := os.ReadFile(filepath.Join(dir, "gomposer.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newLock, err := lock.Decode(newLockBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(newLock.Packages) != 0 || len(newLock.PackagesDev) != 0 {
+		t.Errorf("rewritten lock still has packages: %+v %+v", newLock.Packages, newLock.PackagesDev)
+	}
+}
+
+func TestPruneVendorRemovesOnlyPackagesMissingFromNewLock(t *testing.T) {
+	dir := t.TempDir()
+	oldLock := &lock.File{
+		SchemaVersion: lock.SchemaVersion,
+		Packages: []lock.Package{
+			{Name: "acme/removed"},
+			{Name: "acme/kept"},
+		},
+	}
+	oldBytes, err := oldLock.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"acme/removed", "acme/kept", "user/unmanaged"} {
+		if err := os.MkdirAll(filepath.Join(dir, "vendor", filepath.FromSlash(name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pruneVendor(dir, oldBytes, []lock.Package{{Name: "acme/kept"}}); err != nil {
+		t.Fatalf("pruneVendor: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vendor", "acme", "removed")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("removed package remains: %v", err)
+	}
+	for _, name := range []string{"acme/kept", "user/unmanaged"} {
+		if _, err := os.Stat(filepath.Join(dir, "vendor", filepath.FromSlash(name))); err != nil {
+			t.Errorf("package %s was unexpectedly removed: %v", name, err)
+		}
+	}
+}
+
+func TestPruneVendorRejectsUnsafeLockPackagePath(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(dir, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldLock := &lock.File{SchemaVersion: lock.SchemaVersion, Packages: []lock.Package{{Name: "../../outside"}}}
+	oldBytes, err := oldLock.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneVendor(dir, oldBytes, nil); err == nil {
+		t.Fatal("pruneVendor accepted unsafe package path")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("outside directory was touched: %v", err)
+	}
+}
+
 func TestCacheKeyChangesWithManifest(t *testing.T) {
 	a := computeCacheKey([]byte(`{"name":"a"}`), nil, "php-unknown")
 	b := computeCacheKey([]byte(`{"name":"b"}`), nil, "php-unknown")
