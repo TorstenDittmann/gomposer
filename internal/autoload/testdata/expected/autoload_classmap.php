@@ -10,4 +10,5 @@ return array(
     'Acme\\Legacy\\Old' => $vendorDir . '/acme/legacy/src/Old.php',
     'Acme\\Legacy\\Speaker' => $vendorDir . '/acme/legacy/src/Old.php',
     'Acme\\Legacy\\Sub\\Color' => $vendorDir . '/acme/legacy/src/sub/Sub.php',
+    'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
 );

@@ -24,6 +24,7 @@ type Options struct {
 	ProjectDir   string
 	Entries      []Entry
 	RootAutoload manifest.Autoload
+	Installed    InstalledData
 }
 
 // Generate writes the full autoloader bundle into opts.ProjectDir/vendor/.
@@ -37,6 +38,11 @@ func Generate(opts Options) error {
 		return errors.New("autoload: ProjectDir must be absolute")
 	}
 
+	installed, err := normalizeInstalled(opts.Installed)
+	if err != nil {
+		return err
+	}
+
 	WarnPSR0(opts.RootAutoload, opts.Entries)
 
 	psr4 := CollectPSR4(opts.ProjectDir, opts.RootAutoload, opts.Entries)
@@ -45,6 +51,10 @@ func Generate(opts Options) error {
 	if err != nil {
 		return err
 	}
+	if classmap == nil {
+		classmap = make(map[string]string)
+	}
+	classmap[`Composer\InstalledVersions`] = "vendor/composer/InstalledVersions.php"
 
 	sorted := SortedPrefixes(psr4)
 	data := renderData{
@@ -56,6 +66,7 @@ func Generate(opts Options) error {
 		Files:           files,
 		Classmap:        classmap,
 		SortedClasses:   SortedClassmapKeys(classmap),
+		Installed:       installed,
 	}
 
 	out, err := renderAll(data)

@@ -33,9 +33,10 @@ func toLockPackage(p ResolvedPackage) lock.Package {
 		versionStr = p.Version.Original
 	}
 	return lock.Package{
-		Name:    p.Name,
-		Version: versionStr,
-		Type:    p.Record.Type, // forwarded for plugin detection in the orchestrator
+		Name:              p.Name,
+		Version:           versionStr,
+		VersionNormalized: p.Record.VersionNorm,
+		Type:              p.Record.Type, // forwarded for plugin detection in the orchestrator
 		Source: lock.Source{
 			Type: p.Record.Source.Type,
 			URL:  p.Record.Source.URL,

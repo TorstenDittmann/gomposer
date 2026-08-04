@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/torstendittmann/gomposer/internal/lock"
-	"github.com/torstendittmann/gomposer/internal/manifest"
 	"github.com/torstendittmann/gomposer/internal/registry"
 )
 
@@ -214,8 +213,8 @@ func (m *recordingMaterializer) Materialize(_ context.Context, key, dest string)
 // recordingAutoloader is an Autoloader that writes a stub autoload.php.
 type recordingAutoloader struct{}
 
-func (a *recordingAutoloader) Generate(_ context.Context, projectDir string, _ []lock.Package, _ *manifest.Manifest) error {
-	vendorDir := filepath.Join(projectDir, "vendor")
+func (a *recordingAutoloader) Generate(_ context.Context, req AutoloadRequest) error {
+	vendorDir := filepath.Join(req.ProjectDir, "vendor")
 	if err := os.MkdirAll(vendorDir, 0o755); err != nil {
 		return err
 	}

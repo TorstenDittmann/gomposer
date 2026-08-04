@@ -311,10 +311,13 @@ type fakeAutoloader struct {
 	gotPackages int
 }
 
-func (a *fakeAutoloader) Generate(_ context.Context, projectDir string, pkgs []lock.Package, m *manifest.Manifest) error {
+func (a *fakeAutoloader) Generate(_ context.Context, req AutoloadRequest) error {
 	a.called++
-	a.gotPackages = len(pkgs)
-	vendorDir := filepath.Join(projectDir, "vendor")
+	a.gotPackages = len(req.LockFile.Packages)
+	if req.IncludeDev {
+		a.gotPackages += len(req.LockFile.PackagesDev)
+	}
+	vendorDir := filepath.Join(req.ProjectDir, "vendor")
 	if err := os.MkdirAll(vendorDir, 0o755); err != nil {
 		return err
 	}
@@ -329,7 +332,12 @@ func TestAutoloadPhaseInvokesGenerator(t *testing.T) {
 	gen := &fakeAutoloader{}
 	pkgs := []lock.Package{{Name: "psr/log", Version: "3.0.0"}}
 	m := &manifest.Manifest{Name: "vendor/pkg"}
-	if err := generateAutoloader(context.Background(), dir, pkgs, m, gen); err != nil {
+	if err := generateAutoloader(context.Background(), AutoloadRequest{
+		ProjectDir: dir,
+		LockFile:   &lock.File{Packages: pkgs},
+		Manifest:   m,
+		IncludeDev: true,
+	}, gen); err != nil {
 		t.Fatalf("generateAutoloader: %v", err)
 	}
 	if gen.called != 1 {
@@ -340,6 +348,25 @@ func TestAutoloadPhaseInvokesGenerator(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "vendor", "autoload.php")); err != nil {
 		t.Errorf("vendor/autoload.php should exist: %v", err)
+	}
+}
+
+func TestInstalledDataSeparatesDevPackages(t *testing.T) {
+	req := AutoloadRequest{
+		Manifest: &manifest.Manifest{Name: "acme/app", Version: "1.0.0", Type: "project"},
+		LockFile: &lock.File{
+			Packages:    []lock.Package{{Name: "acme/prod", Version: "1.2.3", VersionNormalized: "1.2.3.0", Source: lock.Source{Ref: "abc"}}},
+			PackagesDev: []lock.Package{{Name: "acme/dev", Version: "dev-main"}},
+		},
+		IncludeDev: true,
+	}
+	got := installedData(req)
+	if len(got.Packages) != 2 || got.Packages[0].DevRequirement || !got.Packages[1].DevRequirement {
+		t.Fatalf("unexpected installed packages: %+v", got.Packages)
+	}
+	req.IncludeDev = false
+	if got := installedData(req); len(got.Packages) != 1 || got.Root.Dev {
+		t.Fatalf("unexpected no-dev metadata: %+v", got)
 	}
 }
 

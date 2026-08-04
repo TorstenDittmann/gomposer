@@ -15,12 +15,12 @@ vendor/
 │   ├── autoload_real.php           # ComposerAutoloaderInit<hash>
 │   ├── autoload_static.php         # PHP-5.6+ optimized static map
 │   ├── ClassLoader.php             # vendored from Composer under MIT
-│   ├── InstalledVersions.php       # Stage-1 stub (see below)
+│   ├── InstalledVersions.php       # runtime package metadata API
 │   └── installed.php               # metadata array
 └── <vendor>/<name>/                # one dir per resolved package
 ```
 
-Every file above is byte-compared against Composer's output in the in-tree test suite (see `internal/autoload/testdata/expected/`).
+Generated files are covered by snapshots and runtime integration tests in `internal/autoload/`.
 
 ## Autoloader coverage
 
@@ -30,11 +30,15 @@ Every file above is byte-compared against Composer's output in the in-tree test 
 - **Files** — `require`-once files that fire on autoload load.
 - **`exclude-from-classmap`** — Composer's glob dialect (`**/Tests/`, `**/*Test.php`) is honored.
 
-## `InstalledVersions.php` — Stage-1 stub
+## `InstalledVersions.php`
 
-Composer's runtime `InstalledVersions` class exposes info like "is this package installed" and "at what version?" via static methods. gomposer's current implementation is a **stub** — the methods exist and return null/false answers rather than erroring. User code that calls into `Composer\InstalledVersions::*` will get benign, empty results.
-
-A full port is on the roadmap for Stage 2 polish. If you rely on `InstalledVersions` in production and the stub isn't enough, please [open an issue](https://github.com/TorstenDittmann/gomposer/issues) and describe the call sites.
+Composer's runtime `InstalledVersions` API exposes installed package names,
+versions, references, types, and paths. gomposer generates this metadata for the
+root project and every selected production, development, and workspace package.
+Development filtering, multiple registered vendor trees, and the standard
+lookup, range, raw-data, and reload methods are supported. Version ranges use
+the installed version and aliases; `provide` and `replace` ranges are not yet
+retained in `gomposer.lock`.
 
 ## The `ClassLoader.php` file
 

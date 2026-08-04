@@ -60,6 +60,16 @@ func fixtureRoot() manifest.Autoload {
 	}
 }
 
+func fixtureInstalled() InstalledData {
+	return InstalledData{
+		Root: InstalledRoot{Name: "acme/app", PrettyVersion: "1.2.3", Version: "1.2.3.0", Type: "project", Dev: true},
+		Packages: []InstalledPackage{
+			{Name: "acme/foo", PrettyVersion: "1.0.0", Version: "1.0.0.0", Reference: "abc123", Type: "library", InstallPath: "vendor/acme/foo"},
+			{Name: "phpunit/phpunit", PrettyVersion: "11.0.0", Version: "11.0.0.0", Type: "library", InstallPath: "vendor/phpunit/phpunit", DevRequirement: true},
+		},
+	}
+}
+
 func TestWriteExpected(t *testing.T) {
 	if os.Getenv("WRITE_EXPECTED") != "1" {
 		t.Skip("set WRITE_EXPECTED=1 to regenerate")
@@ -88,6 +98,7 @@ func renderFixtureBytes(t *testing.T, fixtureAbs string) map[string][]byte {
 	if err != nil {
 		t.Fatalf("CollectClassmap: %v", err)
 	}
+	classmap[`Composer\InstalledVersions`] = "vendor/composer/InstalledVersions.php"
 	files := CollectFiles(fixtureRoot(), fixtureEntries())
 	out, err := renderAll(renderData{
 		InitClass:       InitClassName(fixedProjectDir),
@@ -98,6 +109,7 @@ func renderFixtureBytes(t *testing.T, fixtureAbs string) map[string][]byte {
 		Files:           files,
 		Classmap:        classmap,
 		SortedClasses:   SortedClassmapKeys(classmap),
+		Installed:       fixtureInstalled(),
 	})
 	if err != nil {
 		t.Fatalf("renderAll: %v", err)
@@ -113,6 +125,7 @@ func renderFixtureBytes(t *testing.T, fixtureAbs string) map[string][]byte {
 		"vendor/composer/autoload_files.php":      "autoload_files.php",
 		"vendor/composer/autoload_static.php":     "autoload_static.php",
 		"vendor/composer/installed.php":           "installed.php",
+		"vendor/composer/InstalledVersions.php":   "InstalledVersions.php",
 	}
 	byBasename := make(map[string][]byte, len(mapping))
 	for gen, base := range mapping {
@@ -139,6 +152,7 @@ func TestSnapshot(t *testing.T) {
 		ProjectDir:   dir,
 		Entries:      fixtureEntries(),
 		RootAutoload: fixtureRoot(),
+		Installed:    fixtureInstalled(),
 	}
 	if err := Generate(opts); err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -154,6 +168,7 @@ func TestSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectClassmap: %v", err)
 	}
+	classmap[`Composer\InstalledVersions`] = "vendor/composer/InstalledVersions.php"
 	files := CollectFiles(fixtureRoot(), fixtureEntries())
 	out, err := renderAll(renderData{
 		InitClass:       InitClassName(fixedProjectDir),
@@ -164,6 +179,7 @@ func TestSnapshot(t *testing.T) {
 		Files:           files,
 		Classmap:        classmap,
 		SortedClasses:   SortedClassmapKeys(classmap),
+		Installed:       fixtureInstalled(),
 	})
 	if err != nil {
 		t.Fatalf("renderAll: %v", err)
@@ -180,6 +196,7 @@ func TestSnapshot(t *testing.T) {
 		{"vendor/composer/autoload_files.php", "autoload_files.php"},
 		{"vendor/composer/autoload_static.php", "autoload_static.php"},
 		{"vendor/composer/installed.php", "installed.php"},
+		{"vendor/composer/InstalledVersions.php", "InstalledVersions.php"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.expected, func(t *testing.T) {
@@ -210,6 +227,7 @@ func TestGenerateWritesFiles(t *testing.T) {
 		ProjectDir:   dir,
 		Entries:      fixtureEntries(),
 		RootAutoload: fixtureRoot(),
+		Installed:    fixtureInstalled(),
 	}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -248,6 +266,7 @@ func TestGenerateIsIdempotent(t *testing.T) {
 		ProjectDir:   dir,
 		Entries:      fixtureEntries(),
 		RootAutoload: fixtureRoot(),
+		Installed:    fixtureInstalled(),
 	}
 	// Materialize fixture sources into dir so classmap walking finds them.
 	src := filepath.Join("testdata", "fixture-project")
@@ -282,6 +301,8 @@ func readGenerated(t *testing.T, dir string) map[string][]byte {
 		"vendor/composer/autoload_classmap.php",
 		"vendor/composer/autoload_files.php",
 		"vendor/composer/autoload_static.php",
+		"vendor/composer/installed.php",
+		"vendor/composer/InstalledVersions.php",
 	} {
 		body, err := os.ReadFile(filepath.Join(dir, p))
 		if err != nil {
@@ -316,6 +337,7 @@ func TestEndToEndPHPClassResolution(t *testing.T) {
 		ProjectDir:   dir,
 		Entries:      fixtureEntries(),
 		RootAutoload: fixtureRoot(),
+		Installed:    fixtureInstalled(),
 	}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -331,6 +353,11 @@ func TestEndToEndPHPClassResolution(t *testing.T) {
 		{`class_exists('Acme\\Legacy\\Old') ? '1' : ''`, "1"},
 		{`class_exists('Acme\\Legacy\\Tests\\HiddenTest') ? '1' : ''`, ""},
 		{`function_exists('mb_strlen') ? '1' : ''`, "1"},
+		{`Composer\InstalledVersions::isInstalled('acme/foo') ? '1' : ''`, "1"},
+		{`Composer\InstalledVersions::isInstalled('phpunit/phpunit', false) ? '1' : ''`, ""},
+		{`Composer\InstalledVersions::getPrettyVersion('acme/foo')`, "1.0.0"},
+		{`Composer\InstalledVersions::getReference('acme/foo')`, "abc123"},
+		{`(function () { try { Composer\InstalledVersions::getVersion('missing/pkg'); } catch (OutOfBoundsException $e) { return '1'; } return ''; })()`, "1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.expr, func(t *testing.T) {
