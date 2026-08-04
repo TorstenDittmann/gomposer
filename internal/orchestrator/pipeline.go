@@ -107,7 +107,14 @@ type Materializer interface {
 // Autoloader generates vendor/autoload.php and the composer/ helper files.
 // Implemented by internal/autoload (Plan 5).
 type Autoloader interface {
-	Generate(ctx context.Context, projectDir string, packages []lock.Package, m *manifest.Manifest) error
+	Generate(ctx context.Context, req AutoloadRequest) error
+}
+
+type AutoloadRequest struct {
+	ProjectDir string
+	LockFile   *lock.File
+	Manifest   *manifest.Manifest
+	IncludeDev bool
 }
 
 // pipelineState carries values across phases. Built once at the top of run().
@@ -498,8 +505,8 @@ func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package,
 	return nil
 }
 
-func generateAutoloader(ctx context.Context, projectDir string, pkgs []lock.Package, m *manifest.Manifest, a Autoloader) error {
-	if err := a.Generate(ctx, projectDir, pkgs, m); err != nil {
+func generateAutoloader(ctx context.Context, req AutoloadRequest, a Autoloader) error {
+	if err := a.Generate(ctx, req); err != nil {
 		return fmt.Errorf("orchestrator: autoload: %w", err)
 	}
 	return nil
@@ -749,7 +756,12 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 
 	beginStage(opts.Progress, "autoload", 0)
 	t.Begin("autoload")
-	alErr := generateAutoloader(ctx, opts.ProjectDir, all, m, opts.Autoloader)
+	alErr := generateAutoloader(ctx, AutoloadRequest{
+		ProjectDir: opts.ProjectDir,
+		LockFile:   lockFile,
+		Manifest:   m,
+		IncludeDev: !opts.NoDev,
+	}, opts.Autoloader)
 	t.End("autoload")
 	if alErr != nil {
 		return alErr
@@ -973,7 +985,11 @@ func (a *materializerAdapter) Materialize(ctx context.Context, key, dest string)
 // autoloaderAdapter wraps autoload.Generate to implement the orchestrator Autoloader interface.
 type autoloaderAdapter struct{}
 
-func (a *autoloaderAdapter) Generate(ctx context.Context, projectDir string, pkgs []lock.Package, m *manifest.Manifest) error {
+func (a *autoloaderAdapter) Generate(ctx context.Context, req AutoloadRequest) error {
+	pkgs := append([]lock.Package(nil), req.LockFile.Packages...)
+	if req.IncludeDev {
+		pkgs = append(pkgs, req.LockFile.PackagesDev...)
+	}
 	entries := make([]autoloadpkg.Entry, 0, len(pkgs))
 	for _, p := range pkgs {
 		// InstallPath must be relative to projectDir; the generator builds
@@ -988,11 +1004,73 @@ func (a *autoloaderAdapter) Generate(ctx context.Context, projectDir string, pkg
 			ExcludeFromClassmap: excl,
 		})
 	}
+	rootAutoload := req.Manifest.Autoload
+	if req.IncludeDev {
+		rootAutoload = mergeRootAutoload(rootAutoload, req.Manifest.AutoloadDev)
+	}
 	return autoloadpkg.Generate(autoloadpkg.Options{
-		ProjectDir:   projectDir,
+		ProjectDir:   req.ProjectDir,
 		Entries:      entries,
-		RootAutoload: m.Autoload,
+		RootAutoload: rootAutoload,
+		Installed:    installedData(req),
 	})
+}
+
+func installedData(req AutoloadRequest) autoloadpkg.InstalledData {
+	root := autoloadpkg.InstalledRoot{
+		Name:          req.Manifest.Name,
+		PrettyVersion: req.Manifest.Version,
+		Type:          req.Manifest.Type,
+		Dev:           req.IncludeDev,
+	}
+	aliases := make(map[string][]string)
+	for _, alias := range req.LockFile.Aliases {
+		aliases[alias.Package] = append(aliases[alias.Package], alias.Alias)
+	}
+	packages := make([]autoloadpkg.InstalledPackage, 0, len(req.LockFile.Packages)+len(req.LockFile.PackagesDev))
+	appendPackages := func(pkgs []lock.Package, dev bool) {
+		for _, p := range pkgs {
+			packages = append(packages, autoloadpkg.InstalledPackage{
+				Name:           p.Name,
+				PrettyVersion:  p.Version,
+				Version:        p.VersionNormalized,
+				Reference:      p.Source.Ref,
+				Type:           p.Type,
+				InstallPath:    filepath.ToSlash(filepath.Join("vendor", filepath.FromSlash(p.Name))),
+				Aliases:        aliases[p.Name],
+				DevRequirement: dev,
+			})
+		}
+	}
+	appendPackages(req.LockFile.Packages, false)
+	if req.IncludeDev {
+		appendPackages(req.LockFile.PackagesDev, true)
+	}
+	return autoloadpkg.InstalledData{Root: root, Packages: packages}
+}
+
+func mergeRootAutoload(base, dev manifest.Autoload) manifest.Autoload {
+	out := base
+	out.PSR4 = mergeStringMap(base.PSR4, dev.PSR4)
+	out.PSR0 = mergeStringMap(base.PSR0, dev.PSR0)
+	out.Files = append(append([]string(nil), base.Files...), dev.Files...)
+	out.Classmap = append(append([]string(nil), base.Classmap...), dev.Classmap...)
+	out.ExcludeFromClassmap = append(append([]string(nil), base.ExcludeFromClassmap...), dev.ExcludeFromClassmap...)
+	return out
+}
+
+func mergeStringMap(base, extra map[string]string) map[string]string {
+	if len(base) == 0 && len(extra) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(extra))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range extra {
+		out[key] = value
+	}
+	return out
 }
 
 // autoloadFromLockMap converts the lock package's Autoload map (a

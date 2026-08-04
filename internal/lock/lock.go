@@ -48,8 +48,9 @@ type Stability struct {
 }
 
 type Package struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name              string `json:"name"`
+	Version           string `json:"version"`
+	VersionNormalized string `json:"versionNormalized,omitempty"`
 	// Type is the composer "type" value ("library", "composer-plugin",
 	// "composer-installer", etc.). The orchestrator uses it to detect plugins
 	// and emit a warning; it is otherwise informational.

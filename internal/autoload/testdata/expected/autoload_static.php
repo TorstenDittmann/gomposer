@@ -27,6 +27,7 @@ class ComposerStaticInit26b82fb19a5a8b2fdf7fd26c1bbdc2eb
         'Acme\\Legacy\\Old' => __DIR__ . '/..' . '/acme/legacy/src/Old.php',
         'Acme\\Legacy\\Speaker' => __DIR__ . '/..' . '/acme/legacy/src/Old.php',
         'Acme\\Legacy\\Sub\\Color' => __DIR__ . '/..' . '/acme/legacy/src/sub/Sub.php',
+        'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

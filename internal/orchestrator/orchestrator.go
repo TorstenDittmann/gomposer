@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/torstendittmann/gomposer/internal/lock"
 	"github.com/torstendittmann/gomposer/internal/manifest"
 	"github.com/torstendittmann/gomposer/internal/registry"
 	"github.com/torstendittmann/gomposer/internal/scripts"
@@ -249,7 +250,12 @@ func runEmptyUpdate(ctx context.Context, opts Options, m *manifest.Manifest, t *
 	}
 	beginStage(opts.Progress, "autoload", 0)
 	t.Begin("autoload")
-	err = generateAutoloader(ctx, opts.ProjectDir, nil, m, opts.Autoloader)
+	err = generateAutoloader(ctx, AutoloadRequest{
+		ProjectDir: opts.ProjectDir,
+		LockFile:   &lock.File{},
+		Manifest:   m,
+		IncludeDev: !opts.NoDev,
+	}, opts.Autoloader)
 	t.End("autoload")
 	if err != nil {
 		return err

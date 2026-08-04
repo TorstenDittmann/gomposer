@@ -14,11 +14,12 @@ func TestToLockPackages(t *testing.T) {
 			Name:    "a/a",
 			Version: v,
 			Record: registry.PackageVersion{
-				Name:    "a/a",
-				Version: "1.2.3",
-				Source:  registry.Source{Type: "git", URL: "git://a", Ref: "abc"},
-				Dist:    registry.Dist{Type: "zip", URL: "https://a.zip", Sha: "deadbeef"},
-				Require: map[string]string{"php": ">=8.1"},
+				Name:        "a/a",
+				Version:     "1.2.3",
+				VersionNorm: "1.2.3.0",
+				Source:      registry.Source{Type: "git", URL: "git://a", Ref: "abc"},
+				Dist:        registry.Dist{Type: "zip", URL: "https://a.zip", Sha: "deadbeef"},
+				Require:     map[string]string{"php": ">=8.1"},
 			},
 		}},
 		PackagesDev: []ResolvedPackage{{
@@ -38,6 +39,9 @@ func TestToLockPackages(t *testing.T) {
 	}
 	if prod[0].Source.Ref != "abc" {
 		t.Errorf("prod[0].Source.Ref = %q, want abc", prod[0].Source.Ref)
+	}
+	if prod[0].VersionNormalized != "1.2.3.0" {
+		t.Errorf("prod[0].VersionNormalized = %q", prod[0].VersionNormalized)
 	}
 	if prod[0].Dist.Sha256 != "deadbeef" {
 		t.Errorf("prod[0].Dist.Sha256 = %q", prod[0].Dist.Sha256)
