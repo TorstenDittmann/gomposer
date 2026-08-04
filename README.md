@@ -47,6 +47,9 @@ gomposer require psr/log:^3.0             # add a production dependency and inst
 gomposer require --dev phpunit/phpunit    # add a development dependency and install
 gomposer remove psr/log                    # remove a production dependency and update
 gomposer remove --dev phpunit/phpunit      # remove a development dependency and update
+gomposer show                              # list packages from gomposer.lock
+gomposer show monolog/monolog              # inspect one locked package
+gomposer show --direct --tree              # render the direct dependency trees
 gomposer cache            # print the cache path and per-layer disk usage
 gomposer cache dir        # print only the cache path
 gomposer cache clear      # clear every cache layer
@@ -83,6 +86,12 @@ graph is re-resolved, packages no longer present in the new lockfile are pruned
 from `vendor/`, and the manifest and lockfile are restored if the update fails.
 Workspace removal follows the same selected-manifest/root-resolution behavior
 as `require`.
+
+`gomposer show` inspects the manifest and lockfile without network access. It
+lists production, development, direct, and workspace package status; accepts a
+package name for source, dist, and requirement details; and supports `--direct`,
+`--tree`, and `--format=json`. When run for a workspace, direct dependencies
+come from that workspace while resolved package data comes from the root lock.
 
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed
