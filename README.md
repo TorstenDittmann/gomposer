@@ -50,6 +50,8 @@ gomposer remove --dev phpunit/phpunit      # remove a development dependency and
 gomposer show                              # list packages from gomposer.lock
 gomposer show monolog/monolog              # inspect one locked package
 gomposer show --direct --tree              # render the direct dependency trees
+gomposer why psr/log                       # show immediate dependents
+gomposer why --recursive --tree psr/log    # show every reverse dependency path
 gomposer cache            # print the cache path and per-layer disk usage
 gomposer cache dir        # print only the cache path
 gomposer cache clear      # clear every cache layer
@@ -92,6 +94,11 @@ lists production, development, direct, and workspace package status; accepts a
 package name for source, dist, and requirement details; and supports `--direct`,
 `--tree`, and `--format=json`. When run for a workspace, direct dependencies
 come from that workspace while resolved package data comes from the root lock.
+
+`gomposer why` explains which root, workspace, or locked packages require a
+package. Use `--recursive` to include transitive dependents, `--tree` to render
+every reverse dependency path, and `--format=json` for structured output. It
+also accepts platform requirement names such as `php` and `ext-curl`.
 
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed

@@ -1,6 +1,8 @@
 # CLI Reference
 
-The dependency commands are `install` and `update`. Cache inspection and maintenance live under the `cache` command group.
+Dependency installation and inspection use `install`, `update`, `require`,
+`remove`, `show`, and `why`. Cache inspection and maintenance live under the
+`cache` command group.
 
 ## `gomposer install`
 
@@ -39,6 +41,24 @@ Valid layer names are `store`, `metadata`, `resolution`, and `vcs`. Clearing is 
 `--quiet` suppresses the informational output from `cache` and `cache clear`. `cache dir` still prints the path under `--quiet` so it remains suitable for command substitution.
 
 See [Cache Paths](./cache.md) for the layer layout.
+
+## `gomposer why`
+
+Explain why a package or platform requirement is present in the selected
+dependency graph:
+
+```sh
+gomposer why psr/log
+gomposer why --recursive psr/log
+gomposer why --tree psr/log
+gomposer why --format=json php
+```
+
+The default output lists immediate dependents. `--recursive` includes every
+transitive reverse edge, while `--tree` renders complete reverse dependency
+paths and marks cycles. `--no-dev` removes development packages and
+`require-dev` edges. In a workspace member, explanations are limited to the
+graph reachable from that member while still using the root lockfile.
 
 ## Install and update flags
 
