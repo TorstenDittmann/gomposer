@@ -55,6 +55,8 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newRemoveCmd())
 	root.AddCommand(newShowCmd())
 	root.AddCommand(newWhyCmd())
+	root.AddCommand(newOutdatedCmd())
+	root.AddCommand(newAuditCmd())
 	root.AddCommand(newCacheCmd())
 	return root
 }

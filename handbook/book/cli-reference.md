@@ -1,8 +1,8 @@
 # CLI Reference
 
 Dependency installation and inspection use `install`, `update`, `require`,
-`remove`, `show`, and `why`. Cache inspection and maintenance live under the
-`cache` command group.
+`remove`, `show`, `why`, `outdated`, and `audit`. Cache inspection and
+maintenance live under the `cache` command group.
 
 ## `gomposer install`
 
@@ -59,6 +59,36 @@ transitive reverse edge, while `--tree` renders complete reverse dependency
 paths and marks cycles. `--no-dev` removes development packages and
 `require-dev` edges. In a workspace member, explanations are limited to the
 graph reachable from that member while still using the root lockfile.
+
+## `gomposer outdated`
+
+Compare locked packages with configured repository metadata:
+
+```sh
+gomposer outdated
+gomposer outdated --direct
+gomposer outdated --format=json
+gomposer outdated --strict
+```
+
+The output distinguishes the newest `wanted` version allowed by known incoming
+constraints from the unrestricted `latest` version. Local workspace packages
+are skipped. `--strict` returns status 1 when updates are reported.
+
+## `gomposer audit`
+
+Check packages in `gomposer.lock` against Packagist security advisories:
+
+```sh
+gomposer audit
+gomposer audit --no-dev
+gomposer audit --format=json
+```
+
+Audits include development packages by default and always use the shared root
+lock in a workspace. A clean audit exits 0; matching advisories or operational
+failures exit 1. Advisory results are fetched fresh and are not stored in the
+metadata cache.
 
 ## Install and update flags
 
