@@ -52,6 +52,8 @@ gomposer show monolog/monolog              # inspect one locked package
 gomposer show --direct --tree              # render the direct dependency trees
 gomposer why psr/log                       # show immediate dependents
 gomposer why --recursive --tree psr/log    # show every reverse dependency path
+gomposer outdated                         # list packages with newer releases
+gomposer audit                            # check the lock for security advisories
 gomposer cache            # print the cache path and per-layer disk usage
 gomposer cache dir        # print only the cache path
 gomposer cache clear      # clear every cache layer
@@ -99,6 +101,13 @@ come from that workspace while resolved package data comes from the root lock.
 package. Use `--recursive` to include transitive dependents, `--tree` to render
 every reverse dependency path, and `--format=json` for structured output. It
 also accepts platform requirement names such as `php` and `ext-curl`.
+
+`gomposer outdated` compares locked packages with current registry metadata
+and reports both the newest version allowed by known constraints and the latest
+published version. `--direct`, `--no-dev`, `--format=json`, and `--strict` are
+supported. `gomposer audit` checks the root lock against Packagist security
+advisories, supports text and JSON output, and exits non-zero when findings are
+present.
 
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed
