@@ -51,10 +51,13 @@ func TestMedianEmptyReturnsZero(t *testing.T) {
 
 func TestPrepareColdRemovesVendorAndLocks(t *testing.T) {
 	dir := t.TempDir()
+	cacheRoot := filepath.Join(dir, ".bench-cache")
 	for _, p := range []string{
 		filepath.Join(dir, "vendor", "psr", "log"),
 		filepath.Join(dir, "composer.lock"),
 		filepath.Join(dir, "gomposer.lock"),
+		filepath.Join(cacheRoot, "xdg", "gomposer", "metadata"),
+		filepath.Join(cacheRoot, "composer-cache", "files"),
 	} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -63,13 +66,16 @@ func TestPrepareColdRemovesVendorAndLocks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := prepareScenario(ScenarioCold, dir); err != nil {
+	if err := prepareScenario(ScenarioCold, dir, cacheRoot); err != nil {
 		t.Fatalf("prepareScenario: %v", err)
 	}
 	for _, p := range []string{"vendor", "composer.lock", "gomposer.lock"} {
 		if _, err := os.Stat(filepath.Join(dir, p)); !os.IsNotExist(err) {
 			t.Errorf("%s should be removed: %v", p, err)
 		}
+	}
+	if _, err := os.Stat(cacheRoot); !os.IsNotExist(err) {
+		t.Errorf("cache root should be removed: %v", err)
 	}
 }
 
@@ -81,7 +87,11 @@ func TestPrepareWarmRemovesOnlyVendor(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "gomposer.lock"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := prepareScenario(ScenarioWarm, dir); err != nil {
+	cacheRoot := filepath.Join(dir, ".bench-cache")
+	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareScenario(ScenarioWarm, dir, cacheRoot); err != nil {
 		t.Fatalf("prepareScenario: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "vendor")); !os.IsNotExist(err) {
@@ -89,6 +99,9 @@ func TestPrepareWarmRemovesOnlyVendor(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "gomposer.lock")); err != nil {
 		t.Error("gomposer.lock should be preserved on warm")
+	}
+	if _, err := os.Stat(cacheRoot); err != nil {
+		t.Error("cache root should be preserved on warm")
 	}
 }
 
@@ -103,7 +116,7 @@ func TestPrepareLockUnchangedTouchesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := prepareScenario(ScenarioLockUnchanged, dir); err != nil {
+	if err := prepareScenario(ScenarioLockUnchanged, dir, filepath.Join(dir, ".bench-cache")); err != nil {
 		t.Fatalf("prepareScenario: %v", err)
 	}
 	for _, p := range []string{"vendor/keep", "gomposer.lock"} {
@@ -124,12 +137,17 @@ type fakeRunner struct {
 type fakeCall struct {
 	bin     string
 	workDir string
+	env     map[string]string
 }
 
-func (f *fakeRunner) Run(_ context.Context, bin, workDir string) (time.Duration, error) {
+func (f *fakeRunner) Run(_ context.Context, bin, workDir string, env map[string]string) (time.Duration, error) {
 	f.mu.Lock()
 	idx := len(f.calls)
-	f.calls = append(f.calls, fakeCall{bin: bin, workDir: workDir})
+	envCopy := make(map[string]string, len(env))
+	for key, value := range env {
+		envCopy[key] = value
+	}
+	f.calls = append(f.calls, fakeCall{bin: bin, workDir: workDir, env: envCopy})
 	f.mu.Unlock()
 	if f.fn != nil {
 		return f.fn(idx, bin, workDir)
@@ -155,11 +173,11 @@ func TestRunProducesOneResultPerTuple(t *testing.T) {
 	root := t.TempDir()
 	f := writeFixture(t, root, "tiny")
 	plan := Plan{
-		Fixtures:       []Fixture{f},
-		Scenarios:      []Scenario{ScenarioCold, ScenarioWarm, ScenarioLockUnchanged},
-		Runs:           3,
+		Fixtures:     []Fixture{f},
+		Scenarios:    []Scenario{ScenarioCold, ScenarioWarm, ScenarioLockUnchanged},
+		Runs:         3,
 		GomposerPath: "gomposer",
-		ComposerPath:   "composer",
+		ComposerPath: "composer",
 	}
 	fr := &fakeRunner{}
 	results, err := Run(context.Background(), plan, fr)
@@ -172,15 +190,103 @@ func TestRunProducesOneResultPerTuple(t *testing.T) {
 	}
 }
 
+func TestRunUsesIsolatedCacheEnvironmentPerTuple(t *testing.T) {
+	root := t.TempDir()
+	fixtures := []Fixture{writeFixture(t, root, "one"), writeFixture(t, root, "two")}
+	fr := &fakeRunner{}
+	_, err := Run(context.Background(), Plan{
+		Fixtures: fixtures, Scenarios: []Scenario{ScenarioCold}, Runs: 1,
+		GomposerPath: "gomposer", ComposerPath: "composer",
+	}, fr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fr.calls) != 4 {
+		t.Fatalf("calls = %d, want 4", len(fr.calls))
+	}
+	seen := make(map[string]bool)
+	for _, call := range fr.calls {
+		for _, key := range []string{"XDG_CACHE_HOME", "COMPOSER_CACHE_DIR", "COMPOSER_HOME"} {
+			if call.env[key] == "" {
+				t.Errorf("%s missing from env: %v", key, call.env)
+			}
+		}
+		cacheRoot := filepath.Dir(call.env["XDG_CACHE_HOME"])
+		if seen[cacheRoot] {
+			t.Errorf("cache root reused across tuples: %s", cacheRoot)
+		}
+		seen[cacheRoot] = true
+	}
+}
+
+func TestWarmupAndTimedRunsShareCacheEnvironment(t *testing.T) {
+	root := t.TempDir()
+	fr := &fakeRunner{}
+	_, err := Run(context.Background(), Plan{
+		Fixtures: []Fixture{writeFixture(t, root, "tiny")}, Scenarios: []Scenario{ScenarioWarm}, Runs: 2,
+		GomposerPath: "gomposer", ComposerPath: "composer",
+	}, fr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fr.calls) != 6 {
+		t.Fatalf("calls = %d, want 2 tools * (warmup + 2 runs)", len(fr.calls))
+	}
+	for start := 0; start < len(fr.calls); start += 3 {
+		want := fr.calls[start].env["XDG_CACHE_HOME"]
+		for _, call := range fr.calls[start : start+3] {
+			if call.env["XDG_CACHE_HOME"] != want {
+				t.Errorf("tuple cache changed: %q != %q", call.env["XDG_CACHE_HOME"], want)
+			}
+		}
+	}
+}
+
+func TestColdClearsCacheBeforeEveryTimedRun(t *testing.T) {
+	root := t.TempDir()
+	fr := &fakeRunner{fn: func(_ int, _, workDir string) (time.Duration, error) {
+		cacheRoot := filepath.Join(workDir, ".bench-cache")
+		if _, err := os.Stat(cacheRoot); !os.IsNotExist(err) {
+			return 0, errors.New("cold cache survived into timed run")
+		}
+		if err := os.MkdirAll(filepath.Join(cacheRoot, "populated"), 0o755); err != nil {
+			return 0, err
+		}
+		return time.Millisecond, nil
+	}}
+	_, err := Run(context.Background(), Plan{
+		Fixtures: []Fixture{writeFixture(t, root, "tiny")}, Scenarios: []Scenario{ScenarioCold}, Runs: 3,
+		GomposerPath: "gomposer", ComposerPath: "composer",
+	}, fr)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMergeEnvOverridesExistingValues(t *testing.T) {
+	got := mergeEnv([]string{"PATH=/bin", "XDG_CACHE_HOME=/old"}, map[string]string{"XDG_CACHE_HOME": "/new", "COMPOSER_HOME": "/composer"})
+	want := map[string]string{"PATH": "/bin", "XDG_CACHE_HOME": "/new", "COMPOSER_HOME": "/composer"}
+	for _, entry := range got {
+		for key, value := range want {
+			if entry == key+"="+value {
+				delete(want, key)
+			}
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing environment entries: %v (got %v)", want, got)
+	}
+}
+
 func TestRunReportsMedian(t *testing.T) {
 	root := t.TempDir()
 	f := writeFixture(t, root, "tiny")
 	plan := Plan{
-		Fixtures:       []Fixture{f},
-		Scenarios:      []Scenario{ScenarioCold},
-		Runs:           3,
+		Fixtures:     []Fixture{f},
+		Scenarios:    []Scenario{ScenarioCold},
+		Runs:         3,
 		GomposerPath: "cgo",
-		ComposerPath:   "co",
+		ComposerPath: "co",
 	}
 	durations := []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 50 * time.Millisecond,
 		200 * time.Millisecond, 300 * time.Millisecond, 1000 * time.Millisecond}
@@ -207,11 +313,11 @@ func TestRunSurfacesErrorFromCmdRunner(t *testing.T) {
 	root := t.TempDir()
 	f := writeFixture(t, root, "tiny")
 	plan := Plan{
-		Fixtures:       []Fixture{f},
-		Scenarios:      []Scenario{ScenarioCold},
-		Runs:           1,
+		Fixtures:     []Fixture{f},
+		Scenarios:    []Scenario{ScenarioCold},
+		Runs:         1,
 		GomposerPath: "cgo",
-		ComposerPath:   "co",
+		ComposerPath: "co",
 	}
 	fr := &fakeRunner{fn: func(int, string, string) (time.Duration, error) {
 		return 0, errors.New("simulated install failure")
@@ -225,11 +331,11 @@ func TestRunDoesNotMutateOriginalFixture(t *testing.T) {
 	root := t.TempDir()
 	f := writeFixture(t, root, "tiny")
 	plan := Plan{
-		Fixtures:       []Fixture{f},
-		Scenarios:      []Scenario{ScenarioCold},
-		Runs:           1,
+		Fixtures:     []Fixture{f},
+		Scenarios:    []Scenario{ScenarioCold},
+		Runs:         1,
 		GomposerPath: "cgo",
-		ComposerPath:   "co",
+		ComposerPath: "co",
 	}
 	if _, err := Run(context.Background(), plan, &fakeRunner{}); err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"sync"
 
 	"golang.org/x/sync/singleflight"
 
@@ -96,32 +97,47 @@ func (c *Client) Lookup(ctx context.Context, name string) (*registry.PackageMeta
 // We fetch both and merge — most packages only have the first, so the
 // ~dev variant is allowed to 404 silently.
 func (c *Client) lookupUncoalesced(ctx context.Context, name string) (*registry.PackageMetadata, error) {
-	stableBody, err := c.http.Get(ctx, c.baseURL+"/p2/"+name+".json")
-	if err != nil {
-		if isNotFound(err) {
+	type fetchResult struct {
+		body []byte
+		err  error
+	}
+	var stable, dev fetchResult
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		stable.body, stable.err = c.http.Get(ctx, c.baseURL+"/p2/"+name+".json")
+	}()
+	go func() {
+		defer wg.Done()
+		dev.body, dev.err = c.http.Get(ctx, c.baseURL+"/p2/"+name+"~dev.json")
+	}()
+	wg.Wait()
+
+	if stable.err != nil {
+		if isNotFound(stable.err) {
 			return nil, fmt.Errorf("%s: %w", name, registry.ErrPackageNotFound)
 		}
-		return nil, err
+		return nil, stable.err
 	}
-	devBody, devErr := c.http.Get(ctx, c.baseURL+"/p2/"+name+"~dev.json")
-	if devErr != nil && !isNotFound(devErr) {
-		return nil, devErr
+	if dev.err != nil && !isNotFound(dev.err) {
+		return nil, dev.err
 	}
 
 	// Composite cache key: the parsed cache is keyed by hash of all source
 	// bytes, so concatenate stable + dev so a change in either invalidates.
-	composite := append(append([]byte(nil), stableBody...), devBody...)
+	composite := append(append([]byte(nil), stable.body...), dev.body...)
 	if v, ok, _ := c.parsed.Load(composite); ok {
 		out := v
 		return &out, nil
 	}
 
-	md, err := decodeV2(name, stableBody)
+	md, err := decodeV2(name, stable.body)
 	if err != nil {
 		return nil, err
 	}
-	if len(devBody) > 0 {
-		devMd, err := decodeV2(name, devBody)
+	if len(dev.body) > 0 {
+		devMd, err := decodeV2(name, dev.body)
 		if err == nil {
 			md.Versions = append(md.Versions, devMd.Versions...)
 		}
@@ -156,17 +172,17 @@ type v2Response struct {
 }
 
 type v2Version struct {
-	Name              string       `json:"name"`
-	Version           string       `json:"version"`
-	VersionNormalized string       `json:"version_normalized"`
-	Type              string       `json:"type"`
-	Source            v2Source     `json:"source"`
-	Dist              v2Dist       `json:"dist"`
-	Require           stringMap    `json:"require"`
-	RequireDev        stringMap    `json:"require-dev"`
-	Autoload          v2Autoload   `json:"autoload"`
-	AutoloadDev       v2Autoload   `json:"autoload-dev"`
-	Suggest           stringMap    `json:"suggest"`
+	Name              string     `json:"name"`
+	Version           string     `json:"version"`
+	VersionNormalized string     `json:"version_normalized"`
+	Type              string     `json:"type"`
+	Source            v2Source   `json:"source"`
+	Dist              v2Dist     `json:"dist"`
+	Require           stringMap  `json:"require"`
+	RequireDev        stringMap  `json:"require-dev"`
+	Autoload          v2Autoload `json:"autoload"`
+	AutoloadDev       v2Autoload `json:"autoload-dev"`
+	Suggest           stringMap  `json:"suggest"`
 }
 
 // stringMap unmarshals either a JSON object of string→string or the
