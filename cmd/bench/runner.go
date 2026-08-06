@@ -69,6 +69,8 @@ type CmdRunner interface {
 	// Run executes `bin install` in workDir and returns the wall time. Errors
 	// surface up to the bench runner; a single failed sample fails the whole
 	// fixture/scenario/tool tuple (we won't ship dishonest "best of N" stats).
+	// env contains tuple-isolated cache homes that must override the process
+	// environment for both warmups and timed runs.
 	Run(ctx context.Context, bin, workDir string, env map[string]string) (time.Duration, error)
 }
 
