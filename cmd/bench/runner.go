@@ -40,16 +40,16 @@ type Tool string
 
 const (
 	ToolGomposer Tool = "gomposer"
-	ToolComposer   Tool = "composer"
+	ToolComposer Tool = "composer"
 )
 
 // Plan describes everything the runner needs to time.
 type Plan struct {
-	Fixtures       []Fixture
-	Scenarios      []Scenario
-	Runs           int
+	Fixtures     []Fixture
+	Scenarios    []Scenario
+	Runs         int
 	GomposerPath string
-	ComposerPath   string
+	ComposerPath string
 }
 
 // Result is one cell of the report: median wall time of N runs of a single
@@ -69,7 +69,9 @@ type CmdRunner interface {
 	// Run executes `bin install` in workDir and returns the wall time. Errors
 	// surface up to the bench runner; a single failed sample fails the whole
 	// fixture/scenario/tool tuple (we won't ship dishonest "best of N" stats).
-	Run(ctx context.Context, bin, workDir string) (time.Duration, error)
+	// env contains tuple-isolated cache homes that must override the process
+	// environment for both warmups and timed runs.
+	Run(ctx context.Context, bin, workDir string, env map[string]string) (time.Duration, error)
 }
 
 // median returns the middle value of d. For an even-length slice it returns
@@ -90,12 +92,18 @@ func median(d []time.Duration) time.Duration {
 // prepareScenario brings dir into the pre-run state for scenario s. It is
 // called BEFORE every timed run (not just once per scenario) so that cold
 // truly measures cold every time.
-func prepareScenario(s Scenario, dir string) error {
+func prepareScenario(s Scenario, dir, cacheRoot string) error {
 	switch s {
 	case ScenarioCold:
-		for _, rel := range []string{"vendor", "composer.lock", "gomposer.lock"} {
-			if err := os.RemoveAll(filepath.Join(dir, rel)); err != nil {
-				return fmt.Errorf("bench: prepare cold: rm %s: %w", rel, err)
+		paths := []string{
+			filepath.Join(dir, "vendor"),
+			filepath.Join(dir, "composer.lock"),
+			filepath.Join(dir, "gomposer.lock"),
+			cacheRoot,
+		}
+		for _, path := range paths {
+			if err := os.RemoveAll(path); err != nil {
+				return fmt.Errorf("bench: prepare cold: rm %s: %w", path, err)
 			}
 		}
 	case ScenarioWarm:
@@ -173,19 +181,21 @@ func runOne(ctx context.Context, runner CmdRunner, fx Fixture, sc Scenario, tool
 	if err := copyDir(fx.Path, work); err != nil {
 		return Result{}, fmt.Errorf("seed fixture: %w", err)
 	}
+	cacheRoot := filepath.Join(work, ".bench-cache")
+	env := benchmarkEnv(cacheRoot)
 
 	if scenarioNeedsWarmup(sc) {
-		if _, err := runner.Run(ctx, bin, work); err != nil {
+		if _, err := runner.Run(ctx, bin, work, env); err != nil {
 			return Result{}, fmt.Errorf("warmup: %w", err)
 		}
 	}
 
 	samples := make([]time.Duration, 0, runs)
 	for i := 0; i < runs; i++ {
-		if err := prepareScenario(sc, work); err != nil {
+		if err := prepareScenario(sc, work, cacheRoot); err != nil {
 			return Result{}, err
 		}
-		d, err := runner.Run(ctx, bin, work)
+		d, err := runner.Run(ctx, bin, work, env)
 		if err != nil {
 			return Result{}, fmt.Errorf("run %d: %w", i+1, err)
 		}
@@ -198,6 +208,14 @@ func runOne(ctx context.Context, runner CmdRunner, fx Fixture, sc Scenario, tool
 		Median:   median(samples),
 		Samples:  samples,
 	}, nil
+}
+
+func benchmarkEnv(cacheRoot string) map[string]string {
+	return map[string]string{
+		"XDG_CACHE_HOME":     filepath.Join(cacheRoot, "xdg"),
+		"COMPOSER_CACHE_DIR": filepath.Join(cacheRoot, "composer-cache"),
+		"COMPOSER_HOME":      filepath.Join(cacheRoot, "composer-home"),
+	}
 }
 
 // copyDir recursively copies src into dst. Only used for benchmark fixture
@@ -242,12 +260,13 @@ func copyFile(src, dst string, mode os.FileMode) error {
 // times the entire exec.Cmd.Run() call.
 type execCmdRunner struct{}
 
-func (execCmdRunner) Run(ctx context.Context, bin, workDir string) (time.Duration, error) {
+func (execCmdRunner) Run(ctx context.Context, bin, workDir string, env map[string]string) (time.Duration, error) {
 	if bin == "" {
 		return 0, fmt.Errorf("bench: empty binary path")
 	}
 	cmd := exec.CommandContext(ctx, bin, "install")
 	cmd.Dir = workDir
+	cmd.Env = mergeEnv(os.Environ(), env)
 	var stderr bytes.Buffer
 	cmd.Stdout = io.Discard
 	cmd.Stderr = &stderr
@@ -259,4 +278,25 @@ func (execCmdRunner) Run(ctx context.Context, bin, workDir string) (time.Duratio
 			bin, workDir, err, stderr.String())
 	}
 	return elapsed, nil
+}
+
+func mergeEnv(base []string, overrides map[string]string) []string {
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, entry := range base {
+		if i := bytes.IndexByte([]byte(entry), '='); i >= 0 {
+			if _, replaced := overrides[entry[:i]]; replaced {
+				continue
+			}
+		}
+		out = append(out, entry)
+	}
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		out = append(out, key+"="+overrides[key])
+	}
+	return out
 }

@@ -15,11 +15,16 @@ go run ./cmd/bench \
 
 The harness reports the median of `--runs` runs per `(fixture, scenario, tool)` and prints a markdown table you can paste into an issue.
 
+Each tuple runs with isolated `XDG_CACHE_HOME`, `COMPOSER_CACHE_DIR`, and
+`COMPOSER_HOME` directories. Tools and fixtures therefore cannot warm each
+other's caches, and cold samples remove these directories before every timed
+run.
+
 ## Scenarios
 
 Each fixture is measured under three scenarios:
 
-- **cold** — `vendor/` and `composer.lock` are removed before every run. Registry HTTP cache and content-addressed store are also cleared. Everything is fetched from scratch.
+- **cold** — `vendor/`, both lockfiles, and the tuple's isolated cache homes are removed before every run. Everything is fetched from scratch.
 - **warm** — lockfile and on-disk caches are preserved; only `vendor/` is removed. This is the common CI cache-hit shape.
 - **lock-unchanged** — nothing is removed; the timed run starts fully populated. Measures the "did nothing changed?" fast path.
 

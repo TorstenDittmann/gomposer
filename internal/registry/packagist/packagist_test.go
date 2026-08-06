@@ -3,6 +3,7 @@ package packagist
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,6 +144,98 @@ func TestLookupNotFound(t *testing.T) {
 	}
 }
 
+func TestLookupFetchesStableAndDevConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- r.URL.Path
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		version := "1.0.0"
+		if strings.HasSuffix(r.URL.Path, "~dev.json") {
+			version = "dev-main"
+		}
+		fmt.Fprintf(w, `{"packages":{"vendor/pkg":[{"name":"vendor/pkg","version":%q,"version_normalized":%q,"type":"library","source":{"type":"git","url":"https://example.invalid/pkg.git","reference":"abc"}}]}}`, version, version)
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, CacheDir: t.TempDir(), HTTPClient: srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan struct {
+		md  *registry.PackageMetadata
+		err error
+	}, 1)
+	go func() {
+		md, err := c.Lookup(context.Background(), "vendor/pkg")
+		result <- struct {
+			md  *registry.PackageMetadata
+			err error
+		}{md, err}
+	}()
+
+	paths := make(map[string]bool)
+	for i := 0; i < 2; i++ {
+		select {
+		case path := <-started:
+			paths[path] = true
+		case <-time.After(time.Second):
+			t.Fatal("stable and dev requests did not overlap")
+		}
+	}
+	close(release)
+	got := <-result
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if len(got.md.Versions) != 2 {
+		t.Fatalf("versions = %d, want stable+dev", len(got.md.Versions))
+	}
+	if !paths["/p2/vendor/pkg.json"] || !paths["/p2/vendor/pkg~dev.json"] {
+		t.Fatalf("paths = %v", paths)
+	}
+}
+
+func TestLookupDevServerErrorIsFatal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "~dev.json") {
+			http.Error(w, "failed", http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"packages":{"vendor/pkg":[{"name":"vendor/pkg","version":"1.0.0","version_normalized":"1.0.0.0","type":"library","source":{"type":"git","url":"https://example.invalid/pkg.git","reference":"abc"}}]}}`))
+	}))
+	defer srv.Close()
+	c, _ := New(Config{BaseURL: srv.URL, CacheDir: t.TempDir(), HTTPClient: srv.Client()})
+	if _, err := c.Lookup(context.Background(), "vendor/pkg"); err == nil || !strings.Contains(err.Error(), "status 500") {
+		t.Fatalf("error = %v, want dev HTTP 500", err)
+	}
+}
+
+func BenchmarkLookupStableAndDevParallel(b *testing.B) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		version := "1.0.0"
+		if strings.HasSuffix(r.URL.Path, "~dev.json") {
+			version = "dev-main"
+		}
+		fmt.Fprintf(w, `{"packages":{"vendor/pkg":[{"name":"vendor/pkg","version":%q,"version_normalized":%q,"type":"library","source":{"type":"git","url":"https://example.invalid/pkg.git","reference":"abc"}}]}}`, version, version)
+	}))
+	defer srv.Close()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		client, err := New(Config{BaseURL: srv.URL, CacheDir: b.TempDir(), HTTPClient: srv.Client()})
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+		if _, err := client.Lookup(context.Background(), "vendor/pkg"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestLiveLookupMonolog(t *testing.T) {
 	if os.Getenv("GOMPOSER_LIVE_NETWORK") != "1" {
 		t.Skip("set GOMPOSER_LIVE_NETWORK=1 to run")
@@ -161,9 +254,9 @@ func TestLiveLookupMonolog(t *testing.T) {
 }
 
 func TestPackagistAttachesAuth(t *testing.T) {
-	var sawAuth string
+	sawAuth := make(chan string, 2)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawAuth = r.Header.Get("Authorization")
+		sawAuth <- r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(sampleResponse))
 	}))
@@ -192,8 +285,10 @@ func TestPackagistAttachesAuth(t *testing.T) {
 	if _, err := c.Lookup(context.Background(), "monolog/monolog"); err != nil {
 		t.Fatal(err)
 	}
-	if sawAuth != "Bearer TOK" {
-		t.Errorf("Authorization = %q, want Bearer TOK", sawAuth)
+	for i := 0; i < 2; i++ {
+		if got := <-sawAuth; got != "Bearer TOK" {
+			t.Errorf("Authorization = %q, want Bearer TOK", got)
+		}
 	}
 }
 
