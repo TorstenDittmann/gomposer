@@ -10,7 +10,7 @@ import (
 )
 
 // CloneOrCopy copies src to dst, preferring FICLONE (btrfs/xfs reflink),
-// then hardlink, then byte-for-byte copy. FICLONE returns EOPNOTSUPP /
+// then byte-for-byte copy. FICLONE returns EOPNOTSUPP /
 // EXDEV on filesystems that don't support reflink — both are treated as
 // "fall through to the next strategy."
 //
@@ -43,12 +43,8 @@ func CloneOrCopy(src, dst string) error {
 		}
 	}
 
-	// 2. hardlink.
-	if err := os.Link(src, dst); err == nil {
-		return nil
-	}
-
-	// 3. copy.
+	// 2. copy. Hardlinks are intentionally avoided: vendor files are mutable,
+	// and linking them would allow a project to corrupt the shared cache.
 	return copyFileBytes(src, dst)
 }
 

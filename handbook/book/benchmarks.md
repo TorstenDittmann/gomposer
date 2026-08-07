@@ -20,6 +20,10 @@ Each tuple runs with isolated `XDG_CACHE_HOME`, `COMPOSER_CACHE_DIR`, and
 other's caches, and cold samples remove these directories before every timed
 run.
 
+The harness also sets `COMPOSER_NO_BLOCKING=1` so Composer releases with
+security-policy blocking enabled still resolve the fixed historical corpus.
+This affects policy only; advisory data and package downloads remain live.
+
 ## Scenarios
 
 Each fixture is measured under three scenarios:

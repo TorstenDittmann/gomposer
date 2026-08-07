@@ -211,6 +211,9 @@ func TestRunUsesIsolatedCacheEnvironmentPerTuple(t *testing.T) {
 				t.Errorf("%s missing from env: %v", key, call.env)
 			}
 		}
+		if call.env["COMPOSER_NO_BLOCKING"] != "1" {
+			t.Errorf("Composer benchmark policy environment missing: %v", call.env)
+		}
 		cacheRoot := filepath.Dir(call.env["XDG_CACHE_HOME"])
 		if seen[cacheRoot] {
 			t.Errorf("cache root reused across tuples: %s", cacheRoot)

@@ -1,12 +1,11 @@
-// Package store is a content-addressed blob store. It does not understand
-// zips or any other format; it stores opaque byte streams keyed by sha256.
+// Package store is a content-addressed package cache. Archives and their
+// immutable expanded derivatives are keyed by the archive sha256.
 //
-// Layout:   <root>/<sha256>.zip
+// Layout:   <root>/<sha256>.zip and <root>/expanded/<sha256>/
 // Atomic:   writes go to <sha256>.zip.tmp, fsync, rename into place.
 //
 // The .zip suffix is convention only — the store does not validate format.
-// It chose this suffix because the only producer in this project is the
-// fetcher and every artifact it stores is a Composer dist zip.
+// Expanded trees are immutable derivatives used to avoid repeat decompression.
 package store
 
 import (
@@ -40,6 +39,18 @@ func New(root string) (*Store, error) {
 // may not exist; callers should check Has first.
 func (s *Store) Path(sha string) string {
 	return filepath.Join(s.root, sha+".zip")
+}
+
+// ExpandedPath returns the directory containing the immutable expanded tree
+// for sha. Fetcher materialization populates it atomically on first use.
+func (s *Store) ExpandedPath(sha string) string {
+	return filepath.Join(s.root, "expanded", sha)
+}
+
+// HasExpanded reports whether a complete expanded tree is cached for sha.
+func (s *Store) HasExpanded(sha string) bool {
+	body, err := os.ReadFile(filepath.Join(s.ExpandedPath(sha), ".gomposer-sha"))
+	return err == nil && string(body) == sha
 }
 
 // Has reports whether sha is present in the store.

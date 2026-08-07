@@ -9,8 +9,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// CloneOrCopy copies src to dst, preferring APFS clonefile, then hardlink,
-// then byte-for-byte copy. On macOS clonefile shares the underlying APFS
+// CloneOrCopy copies src to dst, preferring APFS clonefile, then byte-for-byte
+// copy. On macOS clonefile shares the underlying APFS
 // extents until either side is mutated — effectively free for installs
 // that only ever read vendor/.
 //
@@ -29,11 +29,6 @@ func CloneOrCopy(src, dst string) error {
 		return err
 	}
 
-	// 2. hardlink.
-	if err := os.Link(src, dst); err == nil {
-		return nil
-	}
-
-	// 3. copy.
+	// 2. copy. Hardlinks would let vendor edits mutate the shared cache.
 	return copyFileBytes(src, dst)
 }

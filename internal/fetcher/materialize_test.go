@@ -87,6 +87,9 @@ func TestMaterializeWithoutWrapperDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "composer.json")); err != nil {
 		t.Errorf("missing composer.json: %v", err)
 	}
+	if st.HasExpanded(sha) {
+		t.Error("small package should not populate expanded cache")
+	}
 }
 
 // TestMaterializeSkipsWhenMarkerMatches asserts the warm-vendor fast path:
@@ -99,6 +102,12 @@ func TestMaterializeSkipsWhenMarkerMatches(t *testing.T) {
 	zipBytes := makeZip(t, map[string]string{
 		"composer.json": `{"name":"vendor/warm"}`,
 		"src/Foo.php":   "<?php",
+		"src/One.php":   "1",
+		"src/Two.php":   "2",
+		"src/Three.php": "3",
+		"src/Four.php":  "4",
+		"src/Five.php":  "5",
+		"src/Six.php":   "6",
 	})
 	sha := sha256Hex(zipBytes)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -138,6 +147,30 @@ func TestMaterializeSkipsWhenMarkerMatches(t *testing.T) {
 	// would error; nil return proves the fast path ran).
 	if err := f.Materialize(context.Background(), pv, target); err != nil {
 		t.Errorf("second Materialize did not take the fast path: %v", err)
+	}
+
+	// Removing vendor simulates the benchmark's warm-cache scenario. The
+	// expanded content-addressed tree must repopulate it without the zip.
+	if err := os.RemoveAll(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Materialize(context.Background(), pv, target); err != nil {
+		t.Fatalf("materialize from expanded cache: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "src", "Foo.php")); err != nil {
+		t.Fatalf("expanded cache did not restore package: %v", err)
+	}
+
+	// Vendor files must not be hardlinked to the shared cache.
+	if err := os.WriteFile(filepath.Join(target, "src", "Foo.php"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := os.ReadFile(filepath.Join(st.ExpandedPath(sha), "src", "Foo.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(cached) != "<?php" {
+		t.Fatalf("vendor mutation changed expanded cache: %q", cached)
 	}
 }
 

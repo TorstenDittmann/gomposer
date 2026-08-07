@@ -11,7 +11,7 @@ Sub-directories:
 
 | Path | Purpose |
 |---|---|
-| `store/` | Content-addressed zip store. Keyed by SHA-256 of the archive bytes; shared across every project. Files are only ever added, never mutated. |
+| `store/` | Content-addressed zip and expanded-package store. Keyed by SHA-256 of the archive bytes; shared across every project. Files are only ever added, never mutated. |
 | `packagist/http/` | HTTP response cache for Packagist v2 (`/p2/*.json`) — ETag-aware. |
 | `packagist/parsed/` | Parsed-response cache: decoded `PackageMetadata` gob-encoded on disk. |
 | `vcs/` | Cloned repositories and parsed metadata for `repositories: [{type: "vcs"}]` entries. |
@@ -31,7 +31,7 @@ The user-facing layers map to disk as follows:
 
 | Layer | Directory | Contents |
 |---|---|---|
-| `store` | `store/` | Downloaded package archives. |
+| `store` | `store/` | Downloaded package archives and immutable expanded trees used by warm installs. |
 | `metadata` | `packagist/` | Packagist HTTP responses and parsed metadata. |
 | `resolution` | `resolution/` | Resolver results. |
 | `vcs` | `vcs/` | VCS clones and metadata. |

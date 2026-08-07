@@ -247,9 +247,39 @@ func (d *v2Dist) UnmarshalJSON(data []byte) error {
 type v2Autoload struct {
 	PSR4                map[string]any `json:"psr-4"`
 	PSR0                map[string]any `json:"psr-0"`
-	Files               []string       `json:"files"`
-	Classmap            []string       `json:"classmap"`
-	ExcludeFromClassmap []string       `json:"exclude-from-classmap"`
+	Files               stringSlice    `json:"files"`
+	Classmap            stringSlice    `json:"classmap"`
+	ExcludeFromClassmap stringSlice    `json:"exclude-from-classmap"`
+}
+
+// stringSlice accepts Composer fields represented as either one string or an
+// array. Packagist contains historical releases using both forms.
+type stringSlice []string
+
+func (s *stringSlice) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" || string(data) == `"__unset"` {
+		*s = nil
+		return nil
+	}
+	var raw any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var values []string
+	var collect func(any)
+	collect = func(value any) {
+		switch value := value.(type) {
+		case string:
+			values = append(values, value)
+		case []any:
+			for _, item := range value {
+				collect(item)
+			}
+		}
+	}
+	collect(raw)
+	*s = values
+	return nil
 }
 
 // UnmarshalJSON tolerates the "__unset" sentinel and any other non-object
@@ -296,9 +326,17 @@ func decodeV2(name string, body []byte) (*registry.PackageMetadata, error) {
 			Dist:        registry.Dist{Type: v.Dist.Type, URL: v.Dist.URL, Sha: v.Dist.Shasum},
 			Require:     map[string]string(v.Require),
 			RequireDev:  map[string]string(v.RequireDev),
-			Autoload:    registry.Autoload(v.Autoload),
-			AutoloadDev: registry.Autoload(v.AutoloadDev),
-			Suggest:     map[string]string(v.Suggest),
+			Autoload: registry.Autoload{
+				PSR4: v.Autoload.PSR4, PSR0: v.Autoload.PSR0,
+				Files: []string(v.Autoload.Files), Classmap: []string(v.Autoload.Classmap),
+				ExcludeFromClassmap: []string(v.Autoload.ExcludeFromClassmap),
+			},
+			AutoloadDev: registry.Autoload{
+				PSR4: v.AutoloadDev.PSR4, PSR0: v.AutoloadDev.PSR0,
+				Files: []string(v.AutoloadDev.Files), Classmap: []string(v.AutoloadDev.Classmap),
+				ExcludeFromClassmap: []string(v.AutoloadDev.ExcludeFromClassmap),
+			},
+			Suggest: map[string]string(v.Suggest),
 		})
 	}
 	return out, nil
