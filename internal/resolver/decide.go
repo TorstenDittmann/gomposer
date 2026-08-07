@@ -196,7 +196,8 @@ func exactConstraint(v constraint.Version) constraint.Constraint {
 // isPlatformPackage reports whether a name refers to a platform requirement
 // (php, hhvm, ext-*) rather than a real package. Stage 1 just skips them.
 func isPlatformPackage(name string) bool {
-	if name == "php" || name == "php-64bit" || name == "php-ipv6" || name == "hhvm" {
+	if name == "php" || name == "php-64bit" || name == "php-ipv6" || name == "hhvm" ||
+		name == "composer-plugin-api" || name == "composer-runtime-api" {
 		return true
 	}
 	if len(name) >= 4 && name[:4] == "ext-" {

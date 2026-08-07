@@ -109,7 +109,9 @@ func TestSolveConflictReturnsConflictError(t *testing.T) {
 
 func TestSolveSkipsPlatformRequires(t *testing.T) {
 	src := testlookup.New(map[string][]registry.PackageVersion{
-		"a/a": {testlookup.Pkg("a/a", "1.0.0", map[string]string{"php": ">=8.1", "ext-mbstring": "*"})},
+		"a/a": {testlookup.Pkg("a/a", "1.0.0", map[string]string{
+			"php": ">=8.1", "ext-mbstring": "*", "composer-plugin-api": "^2.0", "composer-runtime-api": "^2.2",
+		})},
 	})
 	m := &manifest.Manifest{
 		Name:    "user/app",
@@ -120,7 +122,7 @@ func TestSolveSkipsPlatformRequires(t *testing.T) {
 		t.Fatalf("Solve: %v", err)
 	}
 	if len(res.Packages) != 1 {
-		t.Errorf("Packages = %d, want 1 (php and ext-* must not be resolved)", len(res.Packages))
+		t.Errorf("Packages = %d, want 1 (platform requirements must not be resolved)", len(res.Packages))
 	}
 }
 

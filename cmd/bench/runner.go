@@ -212,9 +212,10 @@ func runOne(ctx context.Context, runner CmdRunner, fx Fixture, sc Scenario, tool
 
 func benchmarkEnv(cacheRoot string) map[string]string {
 	return map[string]string{
-		"XDG_CACHE_HOME":     filepath.Join(cacheRoot, "xdg"),
-		"COMPOSER_CACHE_DIR": filepath.Join(cacheRoot, "composer-cache"),
-		"COMPOSER_HOME":      filepath.Join(cacheRoot, "composer-home"),
+		"XDG_CACHE_HOME":       filepath.Join(cacheRoot, "xdg"),
+		"COMPOSER_CACHE_DIR":   filepath.Join(cacheRoot, "composer-cache"),
+		"COMPOSER_HOME":        filepath.Join(cacheRoot, "composer-home"),
+		"COMPOSER_NO_BLOCKING": "1",
 	}
 }
 

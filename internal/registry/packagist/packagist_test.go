@@ -131,6 +131,18 @@ func TestLookupSkipsVersionsWithNoInstallMethod(t *testing.T) {
 	}
 }
 
+func TestDecodeAutoloadStringOrArrayFields(t *testing.T) {
+	body := []byte(`{"packages":{"vendor/pkg":[{"name":"vendor/pkg","version":"1.0.0","version_normalized":"1.0.0.0","type":"library","source":{"type":"git","url":"https://example.invalid/pkg.git","reference":"abc"},"autoload":{"files":"bootstrap.php","classmap":[["src/Legacy.php"]],"exclude-from-classmap":["tests/"]}}]}}`)
+	md, err := decodeV2("vendor/pkg", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := md.Versions[0].Autoload
+	if len(got.Files) != 1 || got.Files[0] != "bootstrap.php" || len(got.Classmap) != 1 || got.Classmap[0] != "src/Legacy.php" || len(got.ExcludeFromClassmap) != 1 {
+		t.Fatalf("autoload = %+v", got)
+	}
+}
+
 func TestLookupNotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
