@@ -1,0 +1,4 @@
+{
+    "name": "gomposer",
+    "install": "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y php-cli && go mod download && go build ./..."
+}
