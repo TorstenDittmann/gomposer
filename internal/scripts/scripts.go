@@ -1,18 +1,19 @@
 // Package scripts executes user-defined script entries from composer.json
-// at install/update lifecycle events.
+// at install/update lifecycle events and via `gomposer run`.
 //
 // Three script forms are accepted:
 //
 //   - Shell command: any string that does not match the other forms. Executed
 //     via `sh -c <cmd>` on Unix. Working dir = project root, env inherited
-//     plus GOMPOSER=1.
+//     plus GOMPOSER=1. ExtraArgs, when set, are POSIX-quoted and appended.
 //   - PHP-callable: a string matching `Vendor\Class::method` or
 //     `\Vendor\Class::method`. Executed via `php -r` after requiring
 //     vendor/autoload.php. The method receives no arguments in stage 2;
-//     synthetic Composer\Script\Event injection is a future plan.
+//     synthetic Composer\Script\Event injection is a future plan. ExtraArgs
+//     are ignored for this form.
 //   - Composer-script ref: a string of the exact form `@<name>` (no
 //     whitespace). Resolved by looking up `<name>` in the same scripts map.
-//     Recursive with cycle detection.
+//     Recursive with cycle detection. ExtraArgs flow through to leaf shells.
 //
 // An event's value is []string; entries fire sequentially with fail-fast on
 // non-zero exit. A failing script returns an error wrapping the redacted
@@ -25,7 +26,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
+
+// ErrNotFound is returned by RunNamed when composer.json has no script
+// with the requested name.
+var ErrNotFound = errors.New("scripts: script not found")
 
 // Event is a Composer lifecycle event name (e.g. "post-install-cmd").
 type Event string
@@ -39,7 +45,7 @@ const (
 	EventPostAutoloadDump Event = "post-autoload-dump"
 )
 
-// Options configures a Run call.
+// Options configures a Run / RunNamed call.
 type Options struct {
 	// ProjectDir is the working directory for every script. Required.
 	ProjectDir string
@@ -48,12 +54,20 @@ type Options struct {
 	Scripts map[string][]string
 	// Verbose logs the body of each script before running it (redacted).
 	Verbose bool
+	// ExtraArgs are appended to shell script bodies (POSIX-quoted). Used by
+	// `gomposer run <script> -- <args>`. Ignored for PHP-callables.
+	ExtraArgs []string
+	// Timeout, if > 0, bounds the entire Run/RunNamed call. Zero means no
+	// extra deadline (install/update lifecycle scripts stay unbounded aside
+	// from the caller's context).
+	Timeout time.Duration
 }
 
 // Runner is the interface the orchestrator imports. The default
 // implementation runs subprocesses; tests inject a fake.
 type Runner interface {
 	Run(ctx context.Context, event Event, opts Options) error
+	RunNamed(ctx context.Context, name string, opts Options) error
 }
 
 // New returns the default subprocess-based runner.
@@ -62,18 +76,44 @@ func New() Runner { return &defaultRunner{} }
 type defaultRunner struct{}
 
 // Run executes every entry under opts.Scripts[event] in order. A no-op when
-// the event has no entries. Returns the first non-nil error.
+// the event has no entries. Returns the first non-nil error. Missing names
+// are silent so install/update lifecycle hooks can be sparse.
 func (r *defaultRunner) Run(ctx context.Context, event Event, opts Options) error {
-	bodies, ok := opts.Scripts[string(event)]
-	if !ok || len(bodies) == 0 {
+	return r.runBodies(ctx, string(event), opts, false)
+}
+
+// RunNamed executes opts.Scripts[name]. Unlike Run, a missing name is an
+// error (ErrNotFound). An empty body list for a present name is a no-op.
+func (r *defaultRunner) RunNamed(ctx context.Context, name string, opts Options) error {
+	return r.runBodies(ctx, name, opts, true)
+}
+
+func (r *defaultRunner) runBodies(ctx context.Context, name string, opts Options, required bool) error {
+	bodies, ok := opts.Scripts[name]
+	if !ok {
+		if required {
+			return fmt.Errorf("%w: %q", ErrNotFound, name)
+		}
+		return nil
+	}
+	if len(bodies) == 0 {
 		return nil
 	}
 	if opts.ProjectDir == "" {
 		return errors.New("scripts: ProjectDir is required")
 	}
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	}
 	visited := make(map[string]struct{})
+	event := Event(name)
 	for _, body := range bodies {
 		if err := r.runOne(ctx, event, body, opts, visited, 0); err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("scripts: %s: timed out after %s: %w", name, opts.Timeout, ctx.Err())
+			}
 			return err
 		}
 	}
@@ -112,7 +152,7 @@ func (r *defaultRunner) runOne(ctx context.Context, event Event, body string, op
 		delete(visited, name)
 		return nil
 	case formShell:
-		if err := runShell(ctx, body, opts); err != nil {
+		if err := runShell(ctx, appendArgs(body, opts.ExtraArgs), opts); err != nil {
 			return fmt.Errorf("scripts: %s: %w", event, err)
 		}
 		return nil

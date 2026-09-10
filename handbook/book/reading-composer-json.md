@@ -54,6 +54,8 @@ Support for `type: "path"` (Composer's traditional monorepo mechanism) is delibe
 `scripts` maps events (`post-install-cmd`, `pre-update-cmd`, etc.) to one or more script bodies. Composer's wire format accepts either a single string or an array of strings per event; gomposer normalizes both into an array internally.
 
 Scripts run in the order declared. Skip everything with `--no-scripts`.
+Named scripts (and lifecycle events) can also be invoked with
+[`gomposer run`](./cli-reference.md#gomposer-run).
 
 ## Platform
 

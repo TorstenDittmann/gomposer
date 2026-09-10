@@ -23,9 +23,9 @@ func TestClassifyShell(t *testing.T) {
 
 func TestClassifyPHPCallable(t *testing.T) {
 	cases := map[string]struct{ class, method string }{
-		`App\Bootstrap::run`:            {"App\\Bootstrap", "run"},
+		`App\Bootstrap::run`:             {"App\\Bootstrap", "run"},
 		`\Vendor\Pkg\Hooks::postInstall`: {"\\Vendor\\Pkg\\Hooks", "postInstall"},
-		`Class::m`:                      {"Class", "m"},
+		`Class::m`:                       {"Class", "m"},
 	}
 	for body, want := range cases {
 		k, class, method, err := classify(body)

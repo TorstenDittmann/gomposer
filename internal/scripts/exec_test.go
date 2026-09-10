@@ -2,12 +2,14 @@ package scripts
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func skipIfNoSh(t *testing.T) {
@@ -235,6 +237,99 @@ func TestRunNoEventIsNoop(t *testing.T) {
 // in runShell does not panic or error when Verbose=true. Visual verification
 // (the "> <body>" prefix appearing on stderr) is covered in the plan's
 // stage-2 acceptance smoke test.
+func TestRunNamedMissingIsError(t *testing.T) {
+	r := New()
+	err := r.RunNamed(context.Background(), "test", Options{
+		ProjectDir: t.TempDir(),
+		Scripts:    map[string][]string{"other": {"true"}},
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRunNamedEmptyBodyIsNoop(t *testing.T) {
+	r := New()
+	err := r.RunNamed(context.Background(), "test", Options{
+		ProjectDir: t.TempDir(),
+		Scripts:    map[string][]string{"test": {}},
+	})
+	if err != nil {
+		t.Fatalf("empty present script should be a no-op, got %v", err)
+	}
+}
+
+func TestRunNamedExtraArgsAppendedToShell(t *testing.T) {
+	skipIfNoSh(t)
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "from-arg")
+	spaced := filepath.Join(dir, "hello world")
+	r := New()
+	err := r.RunNamed(context.Background(), "mark", Options{
+		ProjectDir: dir,
+		Scripts:    map[string][]string{"mark": {"touch"}},
+		ExtraArgs:  []string{sentinel, spaced},
+	})
+	if err != nil {
+		t.Fatalf("RunNamed: %v", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("extra arg was not appended to touch: %v", err)
+	}
+	if _, err := os.Stat(spaced); err != nil {
+		t.Errorf("spaced extra arg was not quoted for touch: %v", err)
+	}
+}
+
+func TestAppendArgsQuotesSpacesAndQuotes(t *testing.T) {
+	got := appendArgs("cmd", []string{"hello world", "it's"})
+	want := `cmd 'hello world' 'it'"'"'s'`
+	if got != want {
+		t.Errorf("appendArgs = %q, want %q", got, want)
+	}
+	if appendArgs("cmd", nil) != "cmd" {
+		t.Errorf("empty args should be a no-op")
+	}
+}
+
+func TestRunNamedTimeoutKillsProcess(t *testing.T) {
+	skipIfNoSh(t)
+	dir := t.TempDir()
+	r := New()
+	err := r.RunNamed(context.Background(), "sleep", Options{
+		ProjectDir: dir,
+		Scripts:    map[string][]string{"sleep": {"sleep 5"}},
+		Timeout:    200 * time.Millisecond,
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error = %v, want timeout", err)
+	}
+}
+
+func TestRunNamedRefStillResolves(t *testing.T) {
+	skipIfNoSh(t)
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "ok")
+	r := New()
+	err := r.RunNamed(context.Background(), "test", Options{
+		ProjectDir: dir,
+		Scripts: map[string][]string{
+			"test":  {"@build"},
+			"build": {"touch"},
+		},
+		ExtraArgs: []string{sentinel},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("sentinel from @build ref with extra args not created: %v", err)
+	}
+}
+
 func TestVerboseAnnouncesEvent(t *testing.T) {
 	skipIfNoSh(t)
 	dir := t.TempDir()
