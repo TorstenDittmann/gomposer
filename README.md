@@ -54,6 +54,7 @@ gomposer why psr/log                       # show immediate dependents
 gomposer why --recursive --tree psr/log    # show every reverse dependency path
 gomposer outdated                         # list packages with newer releases
 gomposer audit                            # check the lock for security advisories
+gomposer dump-autoload                    # regenerate vendor autoload files from the lock
 gomposer cache            # print the cache path and per-layer disk usage
 gomposer cache dir        # print only the cache path
 gomposer cache clear      # clear every cache layer
@@ -108,6 +109,13 @@ published version. `--direct`, `--no-dev`, `--format=json`, and `--strict` are
 supported. `gomposer audit` checks the root lock against Packagist security
 advisories, supports text and JSON output, and exits non-zero when findings are
 present.
+
+`gomposer dump-autoload` regenerates `vendor/autoload.php` and the Composer
+helper files from the current `gomposer.lock` and root `autoload` /
+`autoload-dev` without resolving or reinstalling packages. `--no-dev` omits
+development autoload and locked `packagesDev`; `--no-scripts` skips
+`pre-autoload-dump` / `post-autoload-dump`. From a workspace member it dumps
+into the shared root `vendor/`.
 
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed

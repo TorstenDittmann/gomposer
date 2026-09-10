@@ -57,6 +57,7 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newWhyCmd())
 	root.AddCommand(newOutdatedCmd())
 	root.AddCommand(newAuditCmd())
+	root.AddCommand(newDumpAutoloadCmd())
 	root.AddCommand(newCacheCmd())
 	return root
 }

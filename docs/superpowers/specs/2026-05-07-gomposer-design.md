@@ -19,7 +19,7 @@
 
 - The Composer plugin system. Plugins listed in `require`/`require-dev` are detected and ignored with a warning.
 - Writing `composer.lock`. The two tools coexist on `composer.json` but maintain separate lockfiles.
-- Commands beyond `install` and `update` for the MVP. `require` / `remove` / `show` / `why` / `outdated` / `audit` / `dump-autoload` are all post-MVP.
+- Commands beyond `install` and `update` for the MVP. `require` / `remove` / `show` / `why` / `outdated` / `audit` / `dump-autoload` were post-MVP and are now implemented.
 - PSR-0 autoloader (warn-and-skip).
 - `lib-*` platform constraints (rare and expensive to compute).
 - Windows for the MVP. macOS and Linux first; Windows after stage 4 if there is demand.
@@ -233,6 +233,6 @@ These are mentioned so future readers do not assume they were forgotten.
 - PSR-0. Detected and warned.
 - `lib-*` platform constraints. Detected and warned.
 - `path` and `package` repository types. Post-MVP.
-- `why`, `outdated`, `audit`, `dump-autoload`, and other Composer subcommands beyond `install`/`update`/`require`/`remove`/`show`. Post-MVP. `require` and `remove` provide transactional manifest mutation; `show` provides offline list, detail, direct, tree, and JSON views of the lockfile.
+- Other Composer subcommands beyond `install`/`update`/`require`/`remove`/`show`/`why`/`outdated`/`audit`/`dump-autoload`. Post-MVP. `require` and `remove` provide transactional manifest mutation; `show` provides offline list, detail, direct, tree, and JSON views of the lockfile. `dump-autoload` regenerates vendor autoload files from the lock without reinstalling.
 - Windows. Post-stage-4.
 - Interactive auth prompts on 401/403. Stage-2 polish item; deferred.

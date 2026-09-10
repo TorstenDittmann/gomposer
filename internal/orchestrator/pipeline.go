@@ -117,6 +117,20 @@ type AutoloadRequest struct {
 	IncludeDev bool
 }
 
+// newAutoloadRequest is the single lock+manifest → AutoloadRequest mapping
+// used by install, update, and dump-autoload so those paths cannot drift.
+func newAutoloadRequest(projectDir string, lockFile *lock.File, m *manifest.Manifest, noDev bool) AutoloadRequest {
+	if lockFile == nil {
+		lockFile = &lock.File{}
+	}
+	return AutoloadRequest{
+		ProjectDir: projectDir,
+		LockFile:   lockFile,
+		Manifest:   m,
+		IncludeDev: !noDev,
+	}
+}
+
 // pipelineState carries values across phases. Built once at the top of run().
 type pipelineState struct {
 	opts          Options
@@ -506,6 +520,9 @@ func materializeAll(ctx context.Context, projectDir string, pkgs []lock.Package,
 }
 
 func generateAutoloader(ctx context.Context, req AutoloadRequest, a Autoloader) error {
+	if a == nil {
+		a = &autoloaderAdapter{}
+	}
 	if err := a.Generate(ctx, req); err != nil {
 		return fmt.Errorf("orchestrator: autoload: %w", err)
 	}
@@ -756,12 +773,7 @@ func runFullPipeline(ctx context.Context, opts Options, m *manifest.Manifest, fo
 
 	beginStage(opts.Progress, "autoload", 0)
 	t.Begin("autoload")
-	alErr := generateAutoloader(ctx, AutoloadRequest{
-		ProjectDir: opts.ProjectDir,
-		LockFile:   lockFile,
-		Manifest:   m,
-		IncludeDev: !opts.NoDev,
-	}, opts.Autoloader)
+	alErr := generateAutoloader(ctx, newAutoloadRequest(opts.ProjectDir, lockFile, m, opts.NoDev), opts.Autoloader)
 	t.End("autoload")
 	if alErr != nil {
 		return alErr

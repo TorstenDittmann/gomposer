@@ -1,7 +1,7 @@
 # CLI Reference
 
 Dependency installation and inspection use `install`, `update`, `require`,
-`remove`, `show`, `why`, `outdated`, and `audit`. Cache inspection and
+`remove`, `show`, `why`, `outdated`, `audit`, and `dump-autoload`. Cache inspection and
 maintenance live under the `cache` command group.
 
 ## `gomposer install`
@@ -90,6 +90,27 @@ lock in a workspace. A clean audit exits 0; matching advisories or operational
 failures exit 1. Advisory results are fetched fresh and are not stored in the
 metadata cache.
 
+## `gomposer dump-autoload`
+
+Regenerate `vendor/autoload.php` and the Composer helper files from the current
+`gomposer.lock` without resolving or reinstalling packages:
+
+```sh
+gomposer dump-autoload
+gomposer dump-autoload --no-dev
+gomposer dump-autoload --no-scripts
+```
+
+Root `autoload` and `autoload-dev` are re-read from `composer.json`; package
+autoload maps come from the lockfile. `--no-dev` omits `autoload-dev` and locked
+development packages. `--no-scripts` skips `pre-autoload-dump` and
+`post-autoload-dump`. In a workspace, dump from a member writes the shared root
+`vendor/` (the same walk-up as `install`). `dumpautoload` is accepted as an
+alias.
+
+Use this after adding a class under an existing classmap path, or after editing
+root autoload config, when a full `gomposer install` is unnecessary.
+
 ## Install and update flags
 
 Available on both dependency commands.
@@ -108,7 +129,7 @@ Available on both dependency commands.
 
 | Flag | On | Effect |
 |---|---|---|
-| `--project <dir>` | `install`, `update` | Operate on the composer.json at `<dir>` instead of the current working directory. In workspace mode this is combined with the walk-up to find the workspace root (see [Workspaces](./workspaces.md#installing)). |
+| `--project <dir>` | `install`, `update`, `dump-autoload` | Operate on the composer.json at `<dir>` instead of the current working directory. In workspace mode this is combined with the walk-up to find the workspace root (see [Workspaces](./workspaces.md#installing)). |
 | `--no-prefetch` | `install`, `update` | Disable the lock-driven artifact prefetch (a benchmarking hook). |
 | `--no-metadata-prefetch` | `install`, `update` | Disable the resolver-metadata prefetch (a benchmarking hook). |
 | `--allow-plugins <name…>` | `install`, `update` | Accepted for Composer-CLI compatibility. **No-op** — gomposer never runs plugin code. The bare form `--allow-plugins` (no value) is accepted too. |
