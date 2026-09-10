@@ -176,3 +176,21 @@ func TestListScriptsEmpty(t *testing.T) {
 		t.Errorf("ListScripts = %v, want empty", got)
 	}
 }
+
+func TestRunScriptMissingDirDoesNotWalkToParent(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, `{"name":"acme/app","scripts":{"test":"true"}}`)
+	missing := filepath.Join(dir, "nope", "nested")
+	rec := &recordingNamedRunner{}
+	err := RunScript(context.Background(), ScriptCommand{
+		ProjectDir: missing,
+		Name:       "test",
+		Runner:     rec,
+	})
+	if err == nil || !strings.Contains(err.Error(), "read manifest") {
+		t.Fatalf("error = %v, want missing manifest", err)
+	}
+	if rec.name != "" {
+		t.Errorf("walked up to parent and ran %q", rec.name)
+	}
+}

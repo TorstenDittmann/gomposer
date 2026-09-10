@@ -75,6 +75,12 @@ func resolveScriptProject(dir string) (string, *manifest.Manifest, error) {
 	if dir == "" {
 		return "", nil, fmt.Errorf("orchestrator: ProjectDir is required")
 	}
+	if st, err := os.Stat(dir); err != nil {
+		_, loadErr := loadManifest(dir)
+		return "", nil, loadErr
+	} else if !st.IsDir() {
+		return "", nil, fmt.Errorf("orchestrator: ProjectDir is not a directory: %s", dir)
+	}
 	cur := dir
 	for {
 		path := filepath.Join(cur, "composer.json")
