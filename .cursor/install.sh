@@ -34,11 +34,16 @@ export PHP_EXTRA_CONFIGURE_OPTIONS="--disable-opcache --disable-pcntl --without-
 "$MISE_BIN" trust --quiet
 "$MISE_BIN" install
 
-# 4. Activate mise for the agent's interactive shells (idempotent).
+# 4. Also register the toolchains as global defaults so `go`/`php` resolve from any
+#    directory (gomposer is a CLI you run inside arbitrary PHP projects, not just this
+#    repo). The in-repo mise.toml still pins the versions used when working in /workspace.
+"$MISE_BIN" use -g "go@1.25" "php@8.3"
+
+# 5. Activate mise for the agent's interactive shells (idempotent).
 if ! grep -qF "mise activate bash" "$HOME/.bashrc" 2>/dev/null; then
     printf '\n# mise (Go + PHP toolchains)\nexport PATH="$HOME/.local/bin:$PATH"\neval "$(%s activate bash)"\n' "$MISE_BIN" >> "$HOME/.bashrc"
 fi
 
-# 5. Warm the Go module and build caches using the mise-managed Go.
+# 6. Warm the Go module and build caches using the mise-managed Go.
 "$MISE_BIN" exec -- go mod download
 "$MISE_BIN" exec -- go build ./...
