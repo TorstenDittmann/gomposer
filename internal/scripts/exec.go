@@ -27,13 +27,38 @@ func runShell(ctx context.Context, body string, opts Options) error {
 	cmd.Env = append(os.Environ(), "GOMPOSER=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	configureProcessGroup(cmd)
 	if opts.Verbose {
 		fmt.Fprintf(os.Stderr, "> %s\n", redactBody(body))
 	}
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("scripts: shell %q failed: %w", redactBody(body), err)
 	}
 	return nil
+}
+
+// appendArgs POSIX-quotes extra arguments and appends them to a shell body,
+// matching Composer's `run-script -- args` behavior. Empty args are a no-op.
+func appendArgs(body string, args []string) string {
+	if len(args) == 0 {
+		return body
+	}
+	var b strings.Builder
+	b.WriteString(body)
+	for _, a := range args {
+		b.WriteByte(' ')
+		b.WriteString(posixSingleQuote(a))
+	}
+	return b.String()
+}
+
+// posixSingleQuote wraps s in single quotes, escaping embedded quotes with
+// the standard `'"'"'` sequence so `sh -c` receives the original bytes.
+func posixSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 // runPHPCallable invokes a static method of a class via `php -r`. The
@@ -60,11 +85,15 @@ func runPHPCallable(ctx context.Context, class, method string, opts Options) err
 	cmd.Env = append(os.Environ(), "GOMPOSER=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	configureProcessGroup(cmd)
 	body := class + "::" + method
 	if opts.Verbose {
 		fmt.Fprintf(os.Stderr, "> php %s\n", redactBody(body))
 	}
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("scripts: php-callable %q failed: %w", redactBody(body), err)
 	}
 	return nil

@@ -1,7 +1,7 @@
 # CLI Reference
 
 Dependency installation and inspection use `install`, `update`, `require`,
-`remove`, `show`, `why`, `outdated`, `audit`, and `dump-autoload`. Cache inspection and
+`remove`, `show`, `why`, `outdated`, `audit`, `dump-autoload`, and `run`. Cache inspection and
 maintenance live under the `cache` command group.
 
 ## `gomposer install`
@@ -111,6 +111,31 @@ alias.
 Use this after adding a class under an existing classmap path, or after editing
 root autoload config, when a full `gomposer install` is unnecessary.
 
+## `gomposer run`
+
+Run a named script from `composer.json` (custom names such as `test`, and
+lifecycle events such as `post-install-cmd`):
+
+```sh
+gomposer run test
+gomposer run-script test
+gomposer run test -- --filter=FooTest
+gomposer run --list
+gomposer run --timeout 0 test
+```
+
+Unknown script names are errors. Extra arguments after `--` are POSIX-quoted
+and appended to shell script bodies. PHP-callables still receive no
+`Composer\Script\Event` (the existing Stage 2 limit). `--timeout` is seconds;
+`0` disables the deadline; the default is `300`, matching Composer.
+`--list` / `-l` prints defined script names, sorted.
+
+In a workspace, `run` uses the **selected** manifest: a member directory runs
+that member's scripts with the member as the working directory (its `vendor/`
+symlink already points at the shared root). The workspace root runs the root
+manifest. `--filter` and topological execution across workspaces remain
+[Scope 2](./workspaces.md#scope).
+
 ## Install and update flags
 
 Available on both dependency commands.
@@ -129,7 +154,7 @@ Available on both dependency commands.
 
 | Flag | On | Effect |
 |---|---|---|
-| `--project <dir>` | `install`, `update`, `dump-autoload` | Operate on the composer.json at `<dir>` instead of the current working directory. In workspace mode this is combined with the walk-up to find the workspace root (see [Workspaces](./workspaces.md#installing)). |
+| `--project <dir>` | `install`, `update`, `dump-autoload`, `run` | Operate on the composer.json at `<dir>` instead of the current working directory. For `install` / `update` / `dump-autoload` in workspace mode this is combined with the walk-up to find the workspace root (see [Workspaces](./workspaces.md#installing)). For `run`, the nearest `composer.json` walking up is used so a member keeps its own scripts. |
 | `--no-prefetch` | `install`, `update` | Disable the lock-driven artifact prefetch (a benchmarking hook). |
 | `--no-metadata-prefetch` | `install`, `update` | Disable the resolver-metadata prefetch (a benchmarking hook). |
 | `--allow-plugins <name…>` | `install`, `update` | Accepted for Composer-CLI compatibility. **No-op** — gomposer never runs plugin code. The bare form `--allow-plugins` (no value) is accepted too. |

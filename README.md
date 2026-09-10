@@ -55,6 +55,9 @@ gomposer why --recursive --tree psr/log    # show every reverse dependency path
 gomposer outdated                         # list packages with newer releases
 gomposer audit                            # check the lock for security advisories
 gomposer dump-autoload                    # regenerate vendor autoload files from the lock
+gomposer run test                         # run a composer.json script
+gomposer run test -- --filter=FooTest     # pass extra args to the script
+gomposer run --list                       # list scripts defined in composer.json
 gomposer cache            # print the cache path and per-layer disk usage
 gomposer cache dir        # print only the cache path
 gomposer cache clear      # clear every cache layer
@@ -117,6 +120,15 @@ development autoload and locked `packagesDev`; `--no-scripts` skips
 `pre-autoload-dump` / `post-autoload-dump`. From a workspace member it dumps
 into the shared root `vendor/`.
 
+`gomposer run` (alias `run-script`) executes a named script from the selected
+`composer.json` — custom names such as `test` as well as lifecycle events.
+Extra arguments after `--` are appended to shell script bodies.
+`--list` prints defined script names. `--timeout` is seconds (`0` means no
+timeout; default `300`, matching Composer). From a workspace member it runs
+that member's scripts with the member directory as the working directory;
+from the root it runs the root manifest. Topological execution across
+workspaces and `--filter` are not in this slice.
+
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed
 phase instead; `NO_COLOR` and `TERM=dumb` are honored in automatic color mode.
@@ -164,7 +176,7 @@ acme-monorepo/
 
 Any workspace's own `require __DIR__ . '/../vendor/autoload.php'` bootstrap continues to work — the symlink resolves to the shared install.
 
-Not yet in scope (Scope 2 follow-up): `--filter=<pkg>` for subset installs; `gomposer run <script>` for topologically-ordered script execution across workspaces.
+Not yet in scope (Scope 2 follow-up): `--filter=<pkg>` for subset installs; topological `gomposer run <script> --filter` across workspaces. `gomposer run` itself executes scripts from the selected member or root.
 
 See `docs/superpowers/specs/2026-07-10-workspaces-design.md` for the full design.
 

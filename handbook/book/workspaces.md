@@ -41,8 +41,12 @@ Deep dives follow in this section:
 **Scope 2** (follow-up, not yet built):
 
 - `--filter=<pkg>` for subset installs.
-- `gomposer run <script> [--filter]` for topologically-ordered script execution.
+- Topologically-ordered `gomposer run <script> --filter` across workspaces.
 - `workspace:./relative/path` variant (pin a workspace by path, not name).
+
+`gomposer run` itself is available: it executes scripts from the selected
+member's (or the root's) `composer.json`. Cross-workspace topological
+execution and `--filter` remain Scope 2.
 
 If any of those matter for your workflow, please [open an issue](https://github.com/TorstenDittmann/gomposer/issues).
 
