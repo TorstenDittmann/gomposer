@@ -20,7 +20,7 @@ vendor/
 └── <vendor>/<name>/                # one dir per resolved package
 ```
 
-Generated files are covered by snapshots and runtime integration tests in `internal/autoload/`.
+Generated files are covered by snapshots and runtime integration tests in `internal/autoload/`. `gomposer dump-autoload` regenerates this bundle from `gomposer.lock` and the root manifest without a full install.
 
 ## Autoloader coverage
 

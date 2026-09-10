@@ -26,7 +26,6 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/torstendittmann/gomposer/internal/lock"
 	"github.com/torstendittmann/gomposer/internal/manifest"
 	"github.com/torstendittmann/gomposer/internal/registry"
 	"github.com/torstendittmann/gomposer/internal/scripts"
@@ -56,7 +55,7 @@ type Progress interface {
 	Done(packageCount int)
 }
 
-// Options configures a single Install or Update run.
+// Options configures a single Install, Update, or DumpAutoload run.
 type Options struct {
 	// ProjectDir is the directory containing composer.json. Required.
 	ProjectDir string
@@ -250,12 +249,7 @@ func runEmptyUpdate(ctx context.Context, opts Options, m *manifest.Manifest, t *
 	}
 	beginStage(opts.Progress, "autoload", 0)
 	t.Begin("autoload")
-	err = generateAutoloader(ctx, AutoloadRequest{
-		ProjectDir: opts.ProjectDir,
-		LockFile:   &lock.File{},
-		Manifest:   m,
-		IncludeDev: !opts.NoDev,
-	}, opts.Autoloader)
+	err = generateAutoloader(ctx, newAutoloadRequest(opts.ProjectDir, nil, m, opts.NoDev), opts.Autoloader)
 	t.End("autoload")
 	if err != nil {
 		return err
