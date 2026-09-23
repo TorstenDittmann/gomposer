@@ -182,11 +182,11 @@ func runValidate(path string, opts validateOptions) (validateResult, error) {
 	validateRequirementMaps(&result, m, opts)
 	validateRepositories(&result, m)
 	validateStability(&result, m)
-	validateWorkspaces(&result, dir, m)
+	workspaces := validateWorkspaces(&result, dir, m)
 
 	if !opts.NoCheckLock {
 		result.LockPath = filepath.Join(dir, "gomposer.lock")
-		validateLock(&result, dir, body, m)
+		validateLock(&result, dir, body, m, workspaces)
 	}
 	return result, nil
 }
@@ -231,10 +231,15 @@ func validatePackageIdentity(result *validateResult, m *manifest.Manifest, raw m
 		}
 	}
 
-	if _, ok := raw["license"]; !ok {
+	if rawLicense, ok := raw["license"]; !ok {
 		result.Warnings = append(result.Warnings, validateIssue{
 			Section: "warning",
 			Message: "No license specified, it is recommended to do so. For closed-source software you may use \"proprietary\" as license.",
+		})
+	} else if err := validateLicenseValue(rawLicense); err != nil {
+		result.Errors = append(result.Errors, validateIssue{
+			Section: "error",
+			Message: err.Error(),
 		})
 	}
 
@@ -246,6 +251,29 @@ func validatePackageIdentity(result *validateResult, m *manifest.Manifest, raw m
 			})
 		}
 	}
+}
+
+func validateLicenseValue(raw json.RawMessage) error {
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		if strings.TrimSpace(single) == "" {
+			return fmt.Errorf("license : must be a non-empty string or array of strings")
+		}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(raw, &many); err == nil {
+		if len(many) == 0 {
+			return fmt.Errorf("license : must be a non-empty string or array of strings")
+		}
+		for _, item := range many {
+			if strings.TrimSpace(item) == "" {
+				return fmt.Errorf("license : array entries must be non-empty strings")
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("license : must be a string or array of strings")
 }
 
 func validateRequirementMaps(result *validateResult, m *manifest.Manifest, opts validateOptions) {
@@ -321,20 +349,27 @@ func validateStability(result *validateResult, m *manifest.Manifest) {
 	}
 }
 
-func validateWorkspaces(result *validateResult, dir string, m *manifest.Manifest) {
+func validateWorkspaces(result *validateResult, dir string, m *manifest.Manifest) []manifest.Workspace {
 	if len(m.Workspaces) == 0 {
-		return
+		return nil
 	}
-	_, err := manifest.DiscoverWorkspaces(dir, m, func(string, ...any) {})
+	workspaces, err := manifest.DiscoverWorkspaces(dir, m, func(format string, args ...any) {
+		result.Warnings = append(result.Warnings, validateIssue{
+			Section: "warning",
+			Message: fmt.Sprintf(format, args...),
+		})
+	})
 	if err != nil {
 		result.Errors = append(result.Errors, validateIssue{
 			Section: "error",
 			Message: err.Error(),
 		})
+		return nil
 	}
+	return workspaces
 }
 
-func validateLock(result *validateResult, dir string, manifestBytes []byte, m *manifest.Manifest) {
+func validateLock(result *validateResult, dir string, manifestBytes []byte, m *manifest.Manifest, workspaces []manifest.Workspace) {
 	lockPath := filepath.Join(dir, "gomposer.lock")
 	body, err := os.ReadFile(lockPath)
 	if err != nil {
@@ -358,7 +393,13 @@ func validateLock(result *validateResult, dir string, manifestBytes []byte, m *m
 
 	sum := sha256.Sum256(manifestBytes)
 	wantHash := "sha256:" + hex.EncodeToString(sum[:])
-	if file.ManifestContentHash != "" && file.ManifestContentHash != wantHash {
+	switch {
+	case file.ManifestContentHash == "":
+		result.Errors = append(result.Errors, validateIssue{
+			Section: "lock",
+			Message: "gomposer.lock is missing manifestContentHash; run `gomposer update` to rebuild it.",
+		})
+	case file.ManifestContentHash != wantHash:
 		result.Errors = append(result.Errors, validateIssue{
 			Section: "lock",
 			Message: "The lock file is not up to date with the latest changes in composer.json, it is recommended that you run `gomposer update`.",
@@ -373,7 +414,7 @@ func validateLock(result *validateResult, dir string, manifestBytes []byte, m *m
 		byName[pkg.Name] = pkg
 	}
 
-	checkLocked := func(field string, reqs map[string]string) {
+	checkLocked := func(reqs map[string]string) {
 		for _, name := range sortedMapKeys(reqs) {
 			if !composerPackageName.MatchString(name) {
 				continue // platform packages are not locked
@@ -409,10 +450,22 @@ func validateLock(result *validateResult, dir string, manifestBytes []byte, m *m
 				})
 			}
 		}
-		_ = field
 	}
-	checkLocked("require", m.Require)
-	checkLocked("require-dev", m.RequireDev)
+	checkLocked(m.Require)
+	// A no-dev lock (gomposer update --no-dev) legitimately omits packagesDev.
+	includeDev := len(file.PackagesDev) > 0
+	if includeDev {
+		checkLocked(m.RequireDev)
+	}
+	for _, ws := range workspaces {
+		if ws.Manifest == nil {
+			continue
+		}
+		checkLocked(ws.Manifest.Require)
+		if includeDev {
+			checkLocked(ws.Manifest.RequireDev)
+		}
+	}
 
 	for _, pkg := range file.Packages {
 		if pkg.Type != "workspace" {

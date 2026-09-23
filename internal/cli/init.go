@@ -64,25 +64,36 @@ func newInitCmd() *cobra.Command {
 			}
 
 			path := filepath.Join(dir, "composer.json")
-			if _, err := os.Stat(path); err == nil {
-				return fmt.Errorf("init: %s already exists", path)
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("init: stat %s: %w", path, err)
-			}
-
 			body, err := encodeInitDocument(doc)
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(path, body, 0o644); err != nil {
-				return fmt.Errorf("init: write %s: %w", path, err)
-			}
 
+			// Create the autoload directory first so a failed MkdirAll does not
+			// leave behind a composer.json that blocks retries.
 			if autoload != "" {
 				autoloadDir := filepath.Join(dir, filepath.Clean(autoload))
 				if err := os.MkdirAll(autoloadDir, 0o755); err != nil {
 					return fmt.Errorf("init: create autoload directory: %w", err)
 				}
+			}
+
+			// O_EXCL makes the exists-check and create atomic against concurrent init.
+			file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+			if err != nil {
+				if os.IsExist(err) {
+					return fmt.Errorf("init: %s already exists", path)
+				}
+				return fmt.Errorf("init: write %s: %w", path, err)
+			}
+			if _, err := file.Write(body); err != nil {
+				_ = file.Close()
+				_ = os.Remove(path)
+				return fmt.Errorf("init: write %s: %w", path, err)
+			}
+			if err := file.Close(); err != nil {
+				_ = os.Remove(path)
+				return fmt.Errorf("init: write %s: %w", path, err)
 			}
 
 			if !flagQuiet {
