@@ -69,24 +69,10 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 
-			// Refuse an existing manifest before creating directories so a failed
-			// init does not modify the project. O_EXCL below still protects
-			// against a concurrent create that races this check.
-			if _, err := os.Stat(path); err == nil {
-				return fmt.Errorf("init: %s already exists", path)
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("init: stat %s: %w", path, err)
-			}
-
-			// Create the autoload directory before writing composer.json so a
-			// failed MkdirAll does not leave behind a manifest that blocks retries.
-			if autoload != "" {
-				autoloadDir := filepath.Join(dir, filepath.Clean(autoload))
-				if err := os.MkdirAll(autoloadDir, 0o755); err != nil {
-					return fmt.Errorf("init: create autoload directory: %w", err)
-				}
-			}
-
+			// Create the manifest first with O_EXCL so a concurrent or existing
+			// composer.json fails before we touch the project tree. Create the
+			// autoload directory afterward; if that fails, remove the manifest
+			// so retries are not blocked.
 			file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 			if err != nil {
 				if os.IsExist(err) {
@@ -102,6 +88,14 @@ func newInitCmd() *cobra.Command {
 			if err := file.Close(); err != nil {
 				_ = os.Remove(path)
 				return fmt.Errorf("init: write %s: %w", path, err)
+			}
+
+			if autoload != "" {
+				autoloadDir := filepath.Join(dir, filepath.Clean(autoload))
+				if err := os.MkdirAll(autoloadDir, 0o755); err != nil {
+					_ = os.Remove(path)
+					return fmt.Errorf("init: create autoload directory: %w", err)
+				}
 			}
 
 			if !flagQuiet {
