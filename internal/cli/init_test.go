@@ -81,6 +81,20 @@ func TestInitWritesComposerJSON(t *testing.T) {
 	}
 }
 
+func TestInitExistingManifestDoesNotCreateAutoloadDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{"name":"acme/existing"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := executeInit(t, "--project", dir, "--name", "acme/demo", "--autoload", "src")
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected already exists, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "src")); !os.IsNotExist(err) {
+		t.Fatalf("autoload dir should not be created when manifest exists, stat err = %v", err)
+	}
+}
+
 func TestInitRejectsInvalidName(t *testing.T) {
 	dir := t.TempDir()
 	_, err := executeInit(t, "--project", dir, "--name", "BadName")
