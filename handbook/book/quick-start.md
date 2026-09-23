@@ -10,8 +10,6 @@ gomposer init --name=acme/hello --require=psr/log:^3.0 --require=monolog/monolog
 gomposer install
 ```
 
-Or write `composer.json` by hand — gomposer reads the same manifest Composer does.
-
 You get a `vendor/` directory with Composer's standard layout, an autoloader at `vendor/autoload.php`, and a `gomposer.lock` recording the exact resolved versions.
 
 Before committing, check the manifest (and lock, once present):
