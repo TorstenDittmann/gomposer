@@ -43,6 +43,8 @@ Inside a project that has a `composer.json`:
 ```sh
 gomposer install          # install from composer.json, using gomposer.lock if present
 gomposer update           # re-resolve everything and rewrite gomposer.lock + vendor/
+gomposer init             # create a basic composer.json from flags
+gomposer validate         # validate composer.json and gomposer.lock
 gomposer require psr/log:^3.0             # add a production dependency and install
 gomposer require --dev phpunit/phpunit    # add a development dependency and install
 gomposer remove psr/log                    # remove a production dependency and update
@@ -128,6 +130,16 @@ timeout; default `300`, matching Composer). From a workspace member it runs
 that member's scripts with the member directory as the working directory;
 from the root it runs the root manifest. Topological execution across
 workspaces and `--filter` are not in this slice.
+
+`gomposer init` writes a new `composer.json` from Composer-compatible flags
+(`--name`, `--description`, `--author`, `--require`, `--autoload`, …). It is
+non-interactive; omit `--name` to default to `$USER/<dirname>`. It refuses to
+overwrite an existing manifest.
+
+`gomposer validate` checks `composer.json` for schema and constraint problems
+and, when `gomposer.lock` is present, that the lock still matches. Flags mirror
+Composer (`--no-check-lock`, `--no-check-publish`, `--strict`, …). Exit codes
+are `0` / `1` (strict warnings) / `2` (errors) / `3` (missing file).
 
 Interactive terminals show a live install checklist with package progress and
 phase timings. Redirected stderr and CI receive one stable line per completed

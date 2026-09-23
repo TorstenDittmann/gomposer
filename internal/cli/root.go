@@ -59,15 +59,28 @@ func newRootCmd(version string) *cobra.Command {
 	root.AddCommand(newAuditCmd())
 	root.AddCommand(newDumpAutoloadCmd())
 	root.AddCommand(newRunCmd())
+	root.AddCommand(newInitCmd())
+	root.AddCommand(newValidateCmd())
 	root.AddCommand(newCacheCmd())
 	return root
 }
 
 // ExitCode maps command errors to process exit codes. Cancellation follows
-// the conventional shell code 130; all other failures remain 1.
+// the conventional shell code 130. validate uses Composer-compatible codes
+// (1 warnings with --strict, 2 errors, 3 missing file). All other failures
+// remain 1.
 func ExitCode(err error) int {
 	if errors.Is(err, context.Canceled) {
 		return 130
+	}
+	if errors.Is(err, errValidateMissing) {
+		return 3
+	}
+	if errors.Is(err, errValidateErrors) {
+		return 2
+	}
+	if errors.Is(err, errValidateWarnings) {
+		return 1
 	}
 	return 1
 }

@@ -1,8 +1,65 @@
 # CLI Reference
 
 Dependency installation and inspection use `install`, `update`, `require`,
-`remove`, `show`, `why`, `outdated`, `audit`, `dump-autoload`, and `run`. Cache inspection and
+`remove`, `show`, `why`, `outdated`, `audit`, `dump-autoload`, and `run`.
+Project bootstrap and checks use `init` and `validate`. Cache inspection and
 maintenance live under the `cache` command group.
+
+## `gomposer init`
+
+Create a basic `composer.json` from flags (non-interactive; Composer-compatible
+option names):
+
+```sh
+gomposer init --name=acme/demo --description="Demo" --license=MIT -a src/
+gomposer init --name=acme/app --require=psr/log:^3.0 --require-dev=phpunit/phpunit:^10
+```
+
+| Flag | Effect |
+|---|---|
+| `--name` | Package name (`vendor/package`). When omitted, defaults to `$USER/<dirname>`. |
+| `--description` | Package description. |
+| `--author` | Author as `Name <email@example.com>`. When omitted, uses `git config user.name` / `user.email` when available. |
+| `--type` | Package type (`library`, `project`, …). |
+| `--homepage` | Package homepage URL. |
+| `--require` | Production requirement (`name:constraint`). Repeatable. Also accepts `name=constraint` and `name constraint`. |
+| `--require-dev` | Development requirement. Repeatable. |
+| `-s`, `--stability` | `minimum-stability` (`stable`, `RC`, `beta`, `alpha`, `dev`). |
+| `-l`, `--license` | Package license. |
+| `-a`, `--autoload` | Add a PSR-4 mapping for the package namespace to this relative directory (creates the directory). |
+| `--project <dir>` | Write `composer.json` under `<dir>` instead of the current directory. |
+
+Fails if `composer.json` already exists. Does not generate `vendor/`; run
+`gomposer install` afterward.
+
+## `gomposer validate`
+
+Validate `composer.json` (and `gomposer.lock` when present):
+
+```sh
+gomposer validate
+gomposer validate path/to/composer.json
+gomposer validate --no-check-publish --strict
+```
+
+Checks JSON syntax, package names, version constraints, repositories,
+`minimum-stability`, and workspace discovery. Publishability requires `name`
+and `description`. Warnings cover missing license, unbound (`*`) or exact
+version constraints, and a present `version` field. When `gomposer.lock`
+exists, also checks the stored `manifestContentHash` and that locked package
+versions still satisfy direct constraints.
+
+| Flag | Effect |
+|---|---|
+| `--no-check-all` | Skip unbound/exact constraint warnings. |
+| `--no-check-lock` | Skip `gomposer.lock` freshness checks. |
+| `--no-check-publish` | Do not treat missing publish fields as errors. |
+| `--no-check-version` | Do not warn when `version` is present. |
+| `--strict` | Non-zero exit on warnings as well as errors. |
+| `--project <dir>` | Validate `<dir>/composer.json` (ignored when a file argument is given). |
+
+Exit codes match Composer: `0` ok, `1` warnings with `--strict`, `2` errors,
+`3` missing/unreadable file.
 
 ## `gomposer install`
 
@@ -154,7 +211,7 @@ Available on both dependency commands.
 
 | Flag | On | Effect |
 |---|---|---|
-| `--project <dir>` | `install`, `update`, `dump-autoload`, `run` | Operate on the composer.json at `<dir>` instead of the current working directory. For `install` / `update` / `dump-autoload` in workspace mode this is combined with the walk-up to find the workspace root (see [Workspaces](./workspaces.md#installing)). For `run`, the nearest `composer.json` walking up is used so a member keeps its own scripts. |
+| `--project <dir>` | `install`, `update`, `dump-autoload`, `run`, `init`, `validate` | Operate on the composer.json at `<dir>` instead of the current working directory. For `install` / `update` / `dump-autoload` in workspace mode this is combined with the walk-up to find the workspace root (see [Workspaces](./workspaces.md#installing)). For `run`, the nearest `composer.json` walking up is used so a member keeps its own scripts. For `validate`, ignored when a file argument is given. |
 | `--no-prefetch` | `install`, `update` | Disable the lock-driven artifact prefetch (a benchmarking hook). |
 | `--no-metadata-prefetch` | `install`, `update` | Disable the resolver-metadata prefetch (a benchmarking hook). |
 | `--allow-plugins <name…>` | `install`, `update` | Accepted for Composer-CLI compatibility. **No-op** — gomposer never runs plugin code. The bare form `--allow-plugins` (no value) is accepted too. |
@@ -162,9 +219,17 @@ Available on both dependency commands.
 ## Exit codes
 
 - `0` — success.
-- `1` — anything else. Details are printed to stderr with a `gomposer: <phase>:` prefix.
+- `1` — generic failure, or `validate --strict` with warnings only.
+- `2` — `validate` found errors (including publishability errors unless `--no-check-publish`).
+- `3` — `validate` could not read `composer.json`.
+- `130` — cancelled (`SIGINT` / `SIGTERM`).
+
+Details are printed to stderr (or to the command's configured writers).
+`validate` prints its report to stdout unless `--quiet`.
 
 gomposer is strictly non-interactive; no prompts, no confirmations.
+`gomposer init` takes the same stance: pass flags instead of answering
+Composer-style questions.
 
 Install and update adapt to their output destination. A terminal gets a live
 checklist; CI and redirected stderr get one stable line per completed phase.
