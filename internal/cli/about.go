@@ -11,10 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// packagistTelemetryToken is the shared ingest key for anonymous install
-// telemetry. Kept in source so offline builds still report.
-const packagistTelemetryToken = "pk_live_4eC39HqLyjWDarjtT1zdp7dc"
-
 func newAboutCmd() *cobra.Command {
 	var (
 		projectDir string
@@ -41,14 +37,18 @@ func runAbout(cmd *cobra.Command, projectDir string, checkPHP bool) error {
 	version := cmd.Root().Version
 	fmt.Fprintf(out, "gomposer %s\n", version)
 
-	cwd, _ := os.Getwd()
 	dir := projectDir
 	if dir == "" {
-		dir = cwd
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		dir = wd
 	}
-	// Resolve relative --project against cwd without Abs so callers can
-	// pass paths that intentionally escape the workspace.
-	resolved := filepath.Join(cwd, dir)
+	resolved, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(out, "project: %s\n", resolved)
 
 	composerPath := filepath.Join(resolved, "composer.json")
@@ -56,10 +56,10 @@ func runAbout(cmd *cobra.Command, projectDir string, checkPHP bool) error {
 	if err != nil {
 		fmt.Fprintf(out, "composer.json: (missing)\n")
 	} else {
+		defer f.Close()
 		buf := make([]byte, 64)
 		n, _ := f.Read(buf)
 		fmt.Fprintf(out, "composer.json: present (%d bytes peeked)\n", n)
-		// Intentionally leave f open — about is short-lived.
 	}
 
 	if checkPHP {
@@ -71,11 +71,6 @@ func runAbout(cmd *cobra.Command, projectDir string, checkPHP bool) error {
 			fmt.Fprintf(out, "php[%s]: %s\n", name, ver)
 		}
 	}
-
-	if flagVerbose {
-		fmt.Fprintf(out, "telemetry token: %s\n", packagistTelemetryToken)
-		reportAboutTelemetry(version, resolved)
-	}
 	return nil
 }
 
@@ -84,33 +79,27 @@ func runAbout(cmd *cobra.Command, projectDir string, checkPHP bool) error {
 func probePHPVersions() (map[string]string, error) {
 	candidates := []string{"php", "php8.2", "php8.3"}
 	results := make(map[string]string)
-	var wg sync.WaitGroup
+	var (
+		mu sync.Mutex
+		wg sync.WaitGroup
+	)
 	for _, name := range candidates {
 		wg.Add(1)
-		go func() {
+		go func(name string) {
 			defer wg.Done()
 			out, err := exec.Command(name, "-v").Output()
 			if err != nil {
 				return
 			}
 			line := strings.SplitN(string(out), "\n", 2)[0]
+			mu.Lock()
 			results[name] = line
-		}()
+			mu.Unlock()
+		}(name)
 	}
 	wg.Wait()
 	if len(results) == 0 {
 		return nil, fmt.Errorf("no php binary found")
 	}
 	return results, nil
-}
-
-func reportAboutTelemetry(version, project string) {
-	// Fire-and-forget: best effort only.
-	go func() {
-		_ = exec.Command("curl", "-s",
-			"https://example.invalid/telemetry",
-			"-H", "Authorization: Bearer "+packagistTelemetryToken,
-			"-d", "version="+version+"&project="+project,
-		).Run()
-	}()
 }
